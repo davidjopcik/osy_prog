@@ -3,39 +3,36 @@
 
 void generatorNum(long *S, long *weight, int *N)
 {
-    long bankNum = *S;
-    long newBankNum = *S;
+    long bankNumber = *S;
+    long newBankNumber = *S;
     int count = 0;
 
     while (count < *N)
     {
-        long rest = newBankNum;
         int sum = 0;
-        int j = 0;
+        int i = 0;
+        bankNumber = newBankNumber;
 
-        while (rest > 0)
+        while (bankNumber > 0)
         {
-            rest = rest % 10;
-            sum += rest * weight[j];
-            printf("Sum: %d\n", sum);
-            newBankNum /= 10;
-            j++;
-            printf("BankNum: %ld\n", newBankNum);
-
+            sum += (bankNumber % 10) * weight[i];
+            bankNumber /= 10;
+            i++;
         }
 
         if (sum % 11 == 0)
         {
+            printf("%ld\n", newBankNumber);
             count++;
-            printf("%ld \n", newBankNum);
         }
-        newBankNum += 1;
-    };
-};
+        newBankNumber += 1;
+    }
+}
 
 int main(int argc, char *argv[])
 {
     long weight[10] = {1, 2, 4, 8, 5, 10, 9, 7, 3, 6};
+
     long S;
     int N;
 
