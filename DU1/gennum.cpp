@@ -51,7 +51,6 @@ int main(int argc, char *argv[])
     else
     {
         sscanf(argv[2], "%d", &N);
-        printf("N: %d\n", N);
     }
 
     generatorNum(&S, weight, &N);
