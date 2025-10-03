@@ -1,59 +1,40 @@
 #include <cstdio>
 #include <cstdlib>
+#include <unistd.h>
+#include <string.h>
 
-void generatorNum(long *S, long *weight, int *N)
+void generatorNum(long *S, int *N, int binary)
 {
-    long bankNumber = *S;
-    long newBankNumber = *S;
-    int count = 0;
-
-    while (count < *N)
+    long newNum = *S;
+    for (int i = 0; i < *N; i++)
     {
-        int sum = 0;
-        int i = 0;
-        bankNumber = newBankNumber;
-
-        while (bankNumber > 0)
-        {
-            sum += (bankNumber % 10) * weight[i];
-            bankNumber /= 10;
-            i++;
-        }
-
-        if (sum % 11 == 0)
-        {
-            printf("%ld\n", newBankNumber);
-            count++;
-        }
-        newBankNumber += 1;
+        newNum += 1;
+        if (binary) write(STDOUT_FILENO, &newNum, sizeof(newNum));
+        else        printf("%ld\n", newNum);
     }
 }
 
 int main(int argc, char *argv[])
 {
-    long weight[10] = {1, 2, 4, 8, 5, 10, 9, 7, 3, 6};
-
     long S;
-    int N;
+    int N = 1000;
+    int binary = 0;
 
-    if (argc > 3 || argc < 2)
+    if (argc > 4 || argc < 2)
     {
-        fprintf(stderr, "Zadaj 1 alebo 2 argumenty!\n");
+        fprintf(stderr, "Neplatny pocet argumentov!\n");
         return 1;
     }
 
     sscanf(argv[1], "%ld", &S);
 
-    if (argc == 2)
-    {
-        N = 1000;
-    }
-    else
-    {
-        sscanf(argv[2], "%d", &N);
-    }
+        for (int i = 2; i < argc; i++)
+        {
+            if (argv[i][0] == '-' && argv[i][1] == 'b') binary = 1;
+            else sscanf(argv[2], "%d", &N);
+        }
 
-    generatorNum(&S, weight, &N);
+    generatorNum(&S, &N, binary);
 
     return 0;
 }
