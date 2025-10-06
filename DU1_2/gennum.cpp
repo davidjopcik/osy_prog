@@ -25,8 +25,26 @@ int main(int argc, char *argv[])
 {
     char *end;
     long S = strtol(argv[1], &end, 10);
-    long N = argc < 3 ? 1000 : atoi(argv[2]);
+    long N;
     bool binary = false;
+
+    if (argc == 2 )
+    {
+        N = 1000;
+    }
+    if (argc > 2)
+    {
+        if (strcmp(argv[2], "-b") == 0)
+        {
+            N = 1000;
+        }
+        else
+        {
+            N = atoi(argv[2]);
+        }
+        
+    }
+        
     for (int i = 1; i < argc; i++)
     {
         if (strcmp(argv[i], "-b") == 0)

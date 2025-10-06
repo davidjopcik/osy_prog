@@ -33,7 +33,7 @@ bool isValidBankNumber(long S, bool onlyValid)
 
 int main(int argc, char *argv[])
 {
-    if (argc > 2)
+    if (argc > 3)
     {
         fprintf(stderr, "Neplatny pocet argumentov\n");
         return 1;
@@ -51,6 +51,7 @@ int main(int argc, char *argv[])
     char line[11];
     char *end;
     bool onlyValid = false;
+    long S;
     for (int i = 1; i < argc; i++)
     {
         if (strcmp(argv[i], "-v") == 0)
@@ -59,10 +60,18 @@ int main(int argc, char *argv[])
         }
     }
 
-    while (binary == true ? read(0, &line, sizeof(line)) : scanf("%10s", line) == 1)
+    while (binary ? (read(0, &S, sizeof(S)) == (ssize_t)sizeof(S))
+                  : (scanf("%10s", line) == 1))
     {
-        long S = strtol(line, &end, 10);
-        isValidBankNumber(S, onlyValid);
+        if (!binary)
+        {
+            S = strtol(line, &end, 10);
+            isValidBankNumber(S, onlyValid);
+        }
+        else
+        {
+            isValidBankNumber(S, onlyValid);
+        }
     }
 
     return 0;
