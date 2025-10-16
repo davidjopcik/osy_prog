@@ -3,33 +3,7 @@
 #include <unistd.h>
 #include <string.h>
 
-bool isValidBankNumber(long S, bool onlyValid)
-{
-    long num = S;
-    int sum = 0;
-    bool isValid = false;
 
-    while (num > 0)
-    {
-        sum += num % 10;
-        num /= 10;
-    }
-    isValid = (sum % 11 == 0);
-
-    if (onlyValid == true)
-    {
-        if (isValid)
-        {
-            printf("Cislo uctu: %ld - platne\n", S);
-        }
-    }
-    else
-    {
-        printf("Cislo uctu: %ld - %s ", S, isValid ? "platne\n" : "neplatne\n");
-    }
-
-    return isValid;
-}
 
 int main(int argc, char *argv[])
 {
@@ -47,7 +21,7 @@ int main(int argc, char *argv[])
             binary = true;
         }
     }
-
+    long weight[11] = {1, 2, 4, 8, 5, 10, 9, 7, 3, 6};
     char line[11];
     char *end;
     bool onlyValid = false;
@@ -66,11 +40,11 @@ int main(int argc, char *argv[])
         if (!binary)
         {
             S = strtol(line, &end, 10);
-            isValidBankNumber(S, onlyValid);
+            isValidBankNumber(S, weight, onlyValid);
         }
         else
         {
-            isValidBankNumber(S, onlyValid);
+            isValidBankNumber(S, weight, onlyValid);
         }
     }
 

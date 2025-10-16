@@ -2,24 +2,10 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdbool.h>
 
-void generator(long S, long N, bool binary)
-{
-    long num = S;
-    for (int i = 0; i < N; i++)
-    {
-        if (binary)
-        {
-            write(1, &num, sizeof(num));
-        }
-        else
-        {
-            printf("%010ld\n", num);
-        }
+#include "gen.h"
 
-        num += 1;
-    }
-}
 
 int main(int argc, char *argv[])
 {
