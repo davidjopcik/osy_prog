@@ -2,11 +2,19 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "build-socket-srv",
+            "label": "build-socket-srv-0",
             "type": "shell",
             "command": "make socket_srv",
             "options": {
-                "cwd": "${workspaceFolder}/cv_socket/socket-demo"
+                "cwd": "${workspaceFolder}/cv_socket/socket-demo-0"
+            }
+        },
+        {
+            "label": "build-socket-srv-1",
+            "type": "shell",
+            "command": "make socket_srv",
+            "options": {
+                "cwd": "${workspaceFolder}/cv_socket/socket-demo-1"
             }
         },
         {

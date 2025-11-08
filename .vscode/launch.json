@@ -2,13 +2,22 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "socket_srv (9090)",
+      "name": "socket_srv-0 (9090)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/cv_socket/socket-demo/socket_srv",
+      "program": "${workspaceFolder}/cv_socket/socket-demo-0/socket_srv",
       "args": ["9090"],
-      "cwd": "${workspaceFolder}/cv_socket/socket-demo",
-      "preLaunchTask": "build-socket-srv"
+      "cwd": "${workspaceFolder}/cv_socket/socket-demo-0",
+      "preLaunchTask": "build-socket-srv-0"
+    },
+    {
+      "name": "socket_srv-1 (9090)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/cv_socket/socket-demo-1/socket_srv",
+      "args": ["9090"],
+      "cwd": "${workspaceFolder}/cv_socket/socket-demo-1",
+      "preLaunchTask": "build-socket-srv-1"
     },
     {
       "name": "client (localhost 9090)",

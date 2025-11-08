@@ -102,6 +102,7 @@ int main( int t_narg, char **t_args )
 
     int l_port = 0;
     char *l_host = nullptr;
+    char *l_resolution = nullptr;
 
     // parsing arguments
     for ( int i = 1; i < t_narg; i++ )
@@ -118,6 +119,8 @@ int main( int t_narg, char **t_args )
                 l_host = t_args[ i ];
             else if ( !l_port )
                 l_port = atoi( t_args[ i ] );
+            else if ( !l_resolution )
+                l_resolution = t_args[ i ];
         }
     }
 
