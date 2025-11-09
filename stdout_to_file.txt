@@ -1,0 +1,269 @@
+Toto pôjde do suboru stdout_to_file.txt
+Ahoj z exec!
+fork_pipe_cheatsheet.cpp: regular file
+mode: 644, size: 9133 bytes
+// osy_posix_cheatsheet.cpp
+// Mini-cheatsheet pre POSIX základy: fork, pipe (rury), dup/dup2, exec*, stat,
+// open/read/write/close, wait/waitpid, robustný zápis, smerovania FD.
+// Kompilácia (Linux/macOS): g++ -std=c++17 -Wall -Wextra -O2 osy_posix_cheatsheet.cpp -o osy_posix
+// Spustenie: ./osy_posix
+// POZN: Toto je „učebnicový“ kód – väčšina funkcií len demonštruje vzory (nevolajú sa).
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstdint>
+#include <cstring>
+#include <cerrno>
+
+#include <string>
+#include <vector>
+
+// POSIX
+#include <unistd.h>     // fork, pipe, dup, dup2, read, write, close, execlp, _exit
+#include <fcntl.h>      // open, fcntl
+#include <sys/stat.h>   // stat, fstat, lstat
+#include <sys/types.h>  // pid_t
+#include <sys/wait.h>   // wait, waitpid
+
+// ---------- Pomocné utilitky ----------
+
+static void die(const char* what) {
+    std::fprintf(stderr, "[ERR] %s: %s\n", what, std::strerror(errno));
+}
+
+static int set_cloexec(int fd) {
+    int flags = fcntl(fd, F_GETFD);
+    if (flags < 0) return -1;
+    return fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+}
+
+// robustný zápis n bajtov (ošetruje partial write + EINTR)
+static int write_all(int fd, const void* buf, size_t n) {
+    const unsigned char* p = static_cast<const unsigned char*>(buf);
+    size_t left = n;
+    while (left) {
+        ssize_t w = ::write(fd, p, left);
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        p += w;
+        left -= (size_t)w;
+    }
+    return 0;
+}
+
+// robustné čítanie do bufferu (vracia reálne prečítané bajty, 0 = EOF, -1 = chyba)
+static ssize_t read_block(int fd, void* buf, size_t cap) {
+    for (;;) {
+        ssize_t r = ::read(fd, buf, cap);
+        if (r < 0 && errno == EINTR) continue;
+        return r;
+    }
+}
+
+// ---------- 1) fork + wait/waitpid ----------
+// Vzor: rozlíšenie rodiča a potomka, ukončenie potomka cez _exit.
+static void demo_fork_wait() {
+    pid_t p = ::fork();
+    if (p < 0) { die("fork"); return; }
+
+    if (p == 0) {
+        // Som potomok
+        // ... práca dieťaťa ...
+        _exit(0); // dôležité: _exit (nie std::exit), aby si neflushol pufre rodiča
+    } else {
+        // Som rodič
+        int status = 0;
+        if (::waitpid(p, &status, 0) < 0) { die("waitpid"); return; }
+        if (WIFEXITED(status)) {
+            int code = WEXITSTATUS(status);
+            std::printf("[fork] Child exited with %d\n", code);
+        } else if (WIFSIGNALED(status)) {
+            std::printf("[fork] Child killed by signal %d\n", WTERMSIG(status));
+        }
+    }
+}
+
+// ---------- 2) pipe (rury) základ ----------
+// Rodič píše do rúry, dieťa číta (alebo naopak). Nezabudni zatvárať nepoužité konce!
+static void demo_pipe_parent_writes_child_reads() {
+    int fds[2];
+    if (::pipe(fds) < 0) { die("pipe"); return; }
+
+    pid_t p = ::fork();
+    if (p < 0) { die("fork"); return; }
+
+    if (p == 0) {
+        // Potomok: číta
+        ::close(fds[1]); // nepíšeme
+        char buf[128];
+        ssize_t r = read_block(fds[0], buf, sizeof(buf));
+        if (r > 0) ::write(STDOUT_FILENO, buf, (size_t)r);
+        ::close(fds[0]);
+        _exit(0);
+    } else {
+        // Rodič: píše
+        ::close(fds[0]); // nečíta
+        const char* msg = "Ahoj z rúry!\n";
+        write_all(fds[1], msg, std::strlen(msg));
+        ::close(fds[1]);
+        ::waitpid(p, nullptr, 0);
+    }
+}
+
+// ---------- 3) dup/dup2 (presmerovania FD) ----------
+// Presmerovanie stdout do súboru.
+static void demo_dup2_redirect_stdout_to_file() {
+    int fd = ::open("stdout_to_file.txt", O_CREAT | O_TRUNC | O_WRONLY, 0644);
+    if (fd < 0) { die("open"); return; }
+
+    // dup2 zavrie cieľový FD (STDOUT_FILENO) a nahradí ho za fd
+    if (::dup2(fd, STDOUT_FILENO) < 0) { die("dup2"); ::close(fd); return; }
+    ::close(fd); // duplicita už drží STDOUT
+
+    std::printf("Toto pôjde do suboru stdout_to_file.txt\n");
+    // po návrate do pôvodného stavu by si musel mať odloženú kopiu pôvodného STDOUT
+}
+
+// ---------- 4) exec*: execlp/execvp/execve ----------
+// Pozn: úspešný exec nevracia. Pri chybe vráti -1 a nastaví errno.
+static void demo_exec_echo() {
+    pid_t p = ::fork();
+    if (p < 0) { die("fork"); return; }
+
+    if (p == 0) {
+        // Nahraď proces programom 'echo' (PATH sa hľadá v execlp)
+        ::execlp("echo", "echo", "Ahoj z exec!", (char*)nullptr);
+        // ak sme tu, exec zlyhal
+        die("execlp echo");
+        _exit(1);
+    } else {
+        ::waitpid(p, nullptr, 0);
+    }
+}
+
+// ---------- 5) stat/fstat/lstat ----------
+// Zistenie typu súboru a veľkosti.
+static void demo_stat_basic(const char* path) {
+    struct stat st{};
+    if (::lstat(path, &st) < 0) { die("lstat"); return; }
+
+    if (S_ISREG(st.st_mode)) std::printf("%s: regular file\n", path);
+    else if (S_ISDIR(st.st_mode)) std::printf("%s: directory\n", path);
+    else if (S_ISLNK(st.st_mode)) std::printf("%s: symlink\n", path);
+    else std::printf("%s: other\n", path);
+
+    std::printf("mode: %o, size: %lld bytes\n", st.st_mode & 0777, (long long)st.st_size);
+}
+
+// ---------- 6) open/read/write/close ----------
+// Čítanie zo súboru po blokoch a výpis na stdout.
+static void demo_posix_read_write(const char* in_path) {
+    int fd = ::open(in_path, O_RDONLY);
+    if (fd < 0) { die("open(in)"); return; }
+
+    char buf[4096];
+    for (;;) {
+        ssize_t r = read_block(fd, buf, sizeof(buf));
+        if (r < 0) { die("read"); break; }
+        if (r == 0) break; // EOF
+        if (write_all(STDOUT_FILENO, buf, (size_t)r) < 0) { die("write_all(stdout)"); break; }
+    }
+    ::close(fd);
+}
+
+// ---------- 7) Vzor pipeline: convert | xz -> socket ----------
+// IDEA (bez reálnej aktivácie): dve deti, prepojené rúrou p[2].
+// Child A: convert ... stdout -> p[1]
+// Child B: stdin <- p[0], stdout -> sockfd, exec xz
+// Rodič: zatvorí nepotrebné FD a počká na obe deti.
+static void sketch_convert_xz_to_socket(int /*sockfd*/) {
+    // PSEUDOKÓD / VZOR (zámerne nič nespúšťame):
+    //
+    // int p[2]; pipe(p);
+    // pid_t c1 = fork();
+    // if (c1 == 0) { // convert
+    //   close(p[0]);
+    //   dup2(p[1], STDOUT_FILENO);
+    //   close(p[1]);
+    //   execlp("convert","convert","-resize","1500x750!","podzim.png","-",(char*)nullptr);
+    //   perror("execlp convert"); _exit(1);
+    // }
+    //
+    // pid_t c2 = fork();
+    // if (c2 == 0) { // xz
+    //   close(p[1]);
+    //   dup2(p[0], STDIN_FILENO);
+    //   close(p[0]);
+    //   dup2(sockfd, STDOUT_FILENO);
+    //   execlp("xz","xz","-","--stdout",(char*)nullptr);
+    //   perror("execlp xz"); _exit(1);
+    // }
+    //
+    // close(p[0]); close(p[1]);
+    // // rodič môže close(sockfd) ak output posiela priamo xz a rodič ho už nepoužíva
+    // waitpid(c1, nullptr, 0);
+    // waitpid(c2, nullptr, 0);
+}
+
+// ---------- 8) snprintf / sprintf krátko ----------
+// - snprintf(dest, cap, "fmt %d %s", i, s) -> bezpečný: rešpektuje kapacitu, nul-terminuje.
+// - sprintf(dest, "fmt ...") -> NEOBMEDZUJE dĺžku (NEPOUŽÍVAŤ v praxi bez 100% istoty).
+static void demo_snprintf() {
+    char line[64];
+    int n = std::snprintf(line, sizeof(line), "%s %d %s\n", "cislo", 42, "OK");
+    if (n <= 0 || n >= (int)sizeof(line)) {
+        die("snprintf overflow or error");
+        return;
+    }
+    write_all(STDOUT_FILENO, line, (size_t)n);
+}
+
+// ---------- 9) Malý checklist (komentáre) ----------
+// - fork: vždy kontroluj návratovú hodnotu, v dieťati použi _exit()
+// - pipe: zatváraj nepoužité konce (ináč deadlock/EOF sa nedostaví)
+// - dup2: presmerovanie FD (stdout/stderr/stdin) na pipe/súbor/socket
+// - exec*: ak uspeje, nikdy sa nevráti; na chybe -> perror + _exit(1)
+// - stat/lstat: zisťovanie typu, veľkosti, práv
+// - read/write: rátaj s partial read/write a EINTR
+// - waitpid: zbieraj potomkov, kontroluj WIFEXITED/WEXITSTATUS
+
+int main() {
+    std::puts("Cheatsheet OSY (POSIX) – kompiluje a beží. Pozri funkcie pre vzory.");
+
+    // Nižšie volané len ukážkovo. Kľudne zakomentuj/odkomentuj podľa potreby:
+    demo_fork_wait();
+    demo_pipe_parent_writes_child_reads();
+    demo_dup2_redirect_stdout_to_file();
+    demo_exec_echo();
+    demo_stat_basic("fork_pipe_cheatsheet.cpp");
+    demo_posix_read_write("fork_pipe_cheatsheet.cpp");
+    demo_snprintf();
+    sketch_convert_xz_to_socket(/*sockfd=*/-1);
+
+    return 0;
+}
+
+/*
+RÝCHLY CLI CHEATSHEET (komentár):
+
+# Zistenie typu súboru:
+file image.img          # "XZ compressed data" atď.
+
+# Overenie pipeline lokálne (bez socketu):
+convert -resize 1500x750! podzim.png - | xz - --stdout > test.xz
+xz -dc test.xz > out.png
+identify -format "%wx%h\n" out.png
+
+# Základné príkazy xz:
+xz -z file         # komprimuj -> file.xz
+xz -d file.xz      # dekomprimuj (alebo: xz -dc file.xz > out)
+xz -c -z <in >out  # číta zo stdin, píše na stdout
+xz -dc in.xz | ... # dekompresia na stdout do ďalšej pipeline
+
+# ImageMagick (cli):
+convert in.png -resize 1500x750! out.png
+magick identify -format "%wx%h\n" out.png
+display out.png     # ak máš X11 prostredie
+*/cislo 42 OK
