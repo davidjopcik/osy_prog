@@ -108,6 +108,7 @@ int main(int t_narg, char **t_args)
     int l_port = 0;
     char *l_host = nullptr;
     char *l_resolution = nullptr;
+    char *l_name = nullptr;
 
     // parsing arguments
     for (int i = 1; i < t_narg; i++)
@@ -126,6 +127,8 @@ int main(int t_narg, char **t_args)
                 l_port = atoi(t_args[i]);
             else if (!l_resolution)
                 l_resolution = t_args[i];
+            else if (!l_name)
+                l_name = t_args[i];
         }
     }
 
@@ -182,7 +185,8 @@ int main(int t_narg, char **t_args)
     log_msg(LOG_INFO, "Enter 'close' to close application.");
 
     char line[128];
-    int n = snprintf(line, sizeof(line), "%s\n", l_resolution);
+    int n = snprintf(line, sizeof(line), "%s\n", l_name);
+
 
     //write data
     for (int off = 0; off < n;)
@@ -192,7 +196,8 @@ int main(int t_narg, char **t_args)
     } 
 
 
-    int out_fd = open("image.img", O_CREAT | O_TRUNC | O_WRONLY, 0644);
+    //read data
+    int out_fd = open("runme.xz", O_CREAT | O_TRUNC | O_WRONLY, 0644);
 
     char buf[4096];
     while (1)
@@ -210,53 +215,37 @@ int main(int t_narg, char **t_args)
     }
     close(out_fd);
 
-    struct stat st{};
-    stat("image.img", &st);
-    if(S_ISREG(st.st_mode)) {
-        int fd[2];
-        pipe(fd);
+    //struct stat st{};
+    //stat("runme.xz", &st);
+    //if(S_ISREG(st.st_mode)) {
+     
         pid_t p1 = fork();
 
         if (p1 == 0)
         {
-            close(fd[0]);
-            dup2(fd[1], STDOUT_FILENO);
-            execlp("xz", "xz", "-dc", "image.img", NULL);
-            close(fd[1]);
+            execlp("xz", "xz", "-d", "runme.xz", NULL);
             _exit(1);
         }
+        wait(NULL);
 
         pid_t p2 = fork();
         if (p2 == 0)
         {
-            close(fd[1]);
-            dup2(fd[0], STDIN_FILENO);
-            execlp("display", "display", "-", NULL);
-            //execlp("magick", "magick", "-", "out.png", NULL);
-            close(fd[0]);
-            _exit(1);
-        }
-        
-        close(fd[0]);
-        close(fd[1]);
-        wait(NULL);
-        wait(NULL);
+            chmod("runme", 0755);
+            close(l_sock_server);
 
-        /* pid_t p3 = fork();
-        if (p3 == 0) {
-            execlp("open", "open", "-W", "out.png", (char*)NULL);
-            perror("execlp open");
+
             _exit(1);
         }
-        waitpid(p3, NULL, 0); */
-        
-    }
+        wait(NULL);
+        //waitpid(p2, NULL, 0);
+
+        execlp("./runme", "runme", NULL);
 
 
 
     // close socket
 
-    close(l_sock_server);
 
     return 0;
 }

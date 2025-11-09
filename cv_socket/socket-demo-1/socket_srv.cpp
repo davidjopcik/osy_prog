@@ -149,7 +149,7 @@ void child_serve(int l_sock_listen, int l_sock_client, sockaddr_in l_srv_addr, p
             }
             else
                 log_msg(LOG_DEBUG, "Read %d bytes from client.", l_len);
-            if (l_buf[l_len-2] == '!')
+            /* if (l_buf[l_len-2] == '!')
             {
                 l_buf[l_len-1] = '\0';
             }
@@ -157,7 +157,7 @@ void child_serve(int l_sock_listen, int l_sock_client, sockaddr_in l_srv_addr, p
             {
                 l_buf[l_len-1] = '!';
                 l_buf[l_len] = '\0';
-            }
+            } */
             printf("\n");
             fflush(stdout);
 
@@ -195,72 +195,33 @@ void child_serve(int l_sock_listen, int l_sock_client, sockaddr_in l_srv_addr, p
             exit(0);
         }
 
-
-        //ressolution
-        int counter = 0;
-        bool isValid = false;
-        for (size_t i = 0; i < strlen(l_buf); i++)
-        {
-            if ((l_buf[i] == 'x') && (i > 0) && (i < strlen(l_buf)-2))
-            {
-                for (int j = 0; j < strlen(l_buf); j++)
-                {
-                    if (isdigit(l_buf[j]))
-                    {
-                       counter++;
-                    }
-                }
-                if (counter == strlen(l_buf)-2)   
-                {
-                    isValid = true;
-                }
-            }
-        }
-        //printf("counter: %d\n", counter);
-        //printf("str_len: %zu\n", strlen(l_buf));
-        //printf("isValid: %i\n", isValid);
-
-
-        if (isValid)
-        {
-            int fd[2];
-            pipe(fd);
+    
             pid_t p1 = fork();
             if (p1 == 0)
-            {
-                dup2(fd[1], STDOUT_FILENO);
-                close(fd[1]);
-                close(fd[0]);
-                execlp("convert", "convert", "-resize", l_buf, "podzim.png", "-", NULL);
+            {      
+                char define_arg[256];
+                snprintf(define_arg, sizeof(define_arg), "-DNAME=\"%s\"", l_buf);
+                execlp("g++", "g++", define_arg, "pozdrav.cpp", "-o", "out.bin", NULL);
                 exit(0);
             }
+            wait(NULL);
+            //waitpid(p1, NULL, 0);
             
 
             pid_t p2 = fork();
             if (p2 == 0)
             {
-                close(fd[1]);
-                dup2(fd[0], STDIN_FILENO);
                 dup2(l_sock_client, STDOUT_FILENO);
-                close(fd[0]);
-                close(fd[1]);
-                execlp("xz", "xz", "-", "--stdout", NULL);
+                execlp("xz", "xz", "out.bin", "--stdout", NULL);
                 _exit(1);
             }
-
-            close(fd[0]);
-            close(fd[1]);
             wait(NULL);
-            wait(NULL);
-            close(l_sock_client),
+            //waitpid(p2, NULL, 0);
+            close(l_sock_client);
             exit(0);
-            
-
-            
-        }
+        
     }
 }
-
 
 
 int main(int t_narg, char **t_args)

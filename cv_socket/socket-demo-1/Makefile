@@ -1,19 +1,24 @@
-CXX := g++
-CXXFLAGS := -g -pthread -std=c++11 -Wall
-LDFLAGS := -pthread
+# --- Makefile (Linux) ---
 
-UNAME_S := $(shell uname -s)
-ifeq ($(UNAME_S),Linux)
-  LDFLAGS += -lrt
-endif
+CXX      ?= g++
+CXXFLAGS ?= -std=c++17 -Wall -Wextra -Wpedantic -O2 -g -pthread
+LDFLAGS  ?= -pthread -lrt
 
-all: socket_srv
+TARGET := socket_srv
+SRC    := socket_srv.cpp
+OBJ    := $(SRC:.cpp=.o)
+DEPS   := $(OBJ:.o=.d)
 
-socket_srv: socket_srv.o
-	$(CXX) socket_srv.o $(LDFLAGS) -o $@
+all: $(TARGET)
 
-socket_srv.o: socket_srv.cpp
-	$(CXX) -c $(CXXFLAGS) socket_srv.cpp -o $@
+$(TARGET): $(OBJ)
+	$(CXX) $(OBJ) $(LDFLAGS) -o $@
+
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 clean:
-	rm -f socket_srv socket_srv.o
+	rm -f $(TARGET) $(OBJ) $(DEPS) image.img out.bin runme
+
+.PHONY: all clean
+-include $(DEPS)
