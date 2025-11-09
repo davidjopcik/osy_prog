@@ -25,6 +25,8 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/stat.h>  
+#include <sys/wait.h>
 #include <unistd.h>
 #include <errno.h>
 #include <netdb.h>
@@ -208,8 +210,53 @@ int main(int t_narg, char **t_args)
     }
     close(out_fd);
 
+    struct stat st{};
+    stat("image.img", &st);
+    if(S_ISREG(st.st_mode)) {
+        int fd[2];
+        pipe(fd);
+        pid_t p1 = fork();
+
+        if (p1 == 0)
+        {
+            close(fd[0]);
+            dup2(fd[1], STDOUT_FILENO);
+            execlp("xz", "xz", "-dc", "image.img", NULL);
+            close(fd[1]);
+            _exit(1);
+        }
+
+        pid_t p2 = fork();
+        if (p2 == 0)
+        {
+            close(fd[1]);
+            dup2(fd[0], STDIN_FILENO);
+            //execlp("display", "display", "-", "-a", NULL);
+            execlp("magick", "magick", "-", "out.png", NULL);
+            close(fd[0]);
+            _exit(1);
+        }
+        
+        close(fd[0]);
+        close(fd[1]);
+        wait(NULL);
+        wait(NULL);
+
+        pid_t p3 = fork();
+        if (p3 == 0) {
+            // macOS: -W = počkaj kým sa aplikácia zavrie (Preview)
+            execlp("open", "open", "-W", "out.png", (char*)NULL);
+            perror("execlp open");
+            _exit(1);
+        }
+        waitpid(p3, NULL, 0);
+        
+    }
+
+
 
     // close socket
+
     close(l_sock_server);
 
     return 0;
