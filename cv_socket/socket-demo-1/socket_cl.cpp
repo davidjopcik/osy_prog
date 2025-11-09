@@ -231,8 +231,8 @@ int main(int t_narg, char **t_args)
         {
             close(fd[1]);
             dup2(fd[0], STDIN_FILENO);
-            //execlp("display", "display", "-", "-a", NULL);
-            execlp("magick", "magick", "-", "out.png", NULL);
+            execlp("display", "display", "-", NULL);
+            //execlp("magick", "magick", "-", "out.png", NULL);
             close(fd[0]);
             _exit(1);
         }
@@ -242,14 +242,13 @@ int main(int t_narg, char **t_args)
         wait(NULL);
         wait(NULL);
 
-        pid_t p3 = fork();
+        /* pid_t p3 = fork();
         if (p3 == 0) {
-            // macOS: -W = počkaj kým sa aplikácia zavrie (Preview)
             execlp("open", "open", "-W", "out.png", (char*)NULL);
             perror("execlp open");
             _exit(1);
         }
-        waitpid(p3, NULL, 0);
+        waitpid(p3, NULL, 0); */
         
     }
 
