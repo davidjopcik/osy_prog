@@ -226,7 +226,7 @@ void child_serve(int l_sock_listen, int l_sock_client, sockaddr_in l_srv_addr, p
             pid_t p = fork();
             if (p == 0)
             {
-                dup2(l_sock_client, STDOUT_FILENO);
+                //dup2(l_sock_client, STDOUT_FILENO);
                 execlp("convert", "convert", "-resize", l_buf, "podzim.png", "-", NULL);
                 exit(0);
             }

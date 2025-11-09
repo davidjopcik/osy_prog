@@ -104,6 +104,7 @@ int main( int t_narg, char **t_args )
     char *l_host = nullptr;
     char *l_resolution = nullptr;
 
+
     // parsing arguments
     for ( int i = 1; i < t_narg; i++ )
     {
@@ -122,6 +123,7 @@ int main( int t_narg, char **t_args )
             else if ( !l_resolution )
                 l_resolution = t_args[ i ];
         }
+
     }
 
     if ( !l_host || !l_port )
@@ -131,7 +133,7 @@ int main( int t_narg, char **t_args )
         exit( 1 );
     }
 
-    log_msg( LOG_INFO, "Connection to '%s':%d.", l_host, l_port );
+    log_msg( LOG_INFO, "Connection to '%s':%d. Resolution is: %s\n", l_host, l_port, l_resolution );
 
     addrinfo l_ai_req, *l_ai_ans;
     bzero( &l_ai_req, sizeof( l_ai_req ) );
@@ -176,8 +178,67 @@ int main( int t_narg, char **t_args )
 
     log_msg( LOG_INFO, "Enter 'close' to close application." );
 
+
+   /*  char l_buf[ 128 ];
+    snprintf(l_buf, sizeof(l_buf), "%s\n", l_resolution);
+    int l_len = write( l_sock_server, l_buf, sizeof( l_buf) );
+
+    int out_fd = open("image.img", O_CREAT | O_TRUNC | O_WRONLY, 0644); */
+
+    char line[128];
+int n = snprintf(line, sizeof(line), "%s\n", l_resolution);
+if (n <= 0 || n >= (int)sizeof(line)) { perror("bad resolution"); return 1; }
+
+// spoľahlivý zápis n bajtov (ošetrenie partial write a EINTR)
+for (int off = 0; off < n; ) {
+    ssize_t w = write(l_sock_server, line + off, n - off);
+    if (w < 0) { if (errno == EINTR) continue; perror("write"); return 1; }
+    off += (int)w;
+}
+
+    /* char i_buf[128];
+    while (1)
+    {
+        int r = read(l_sock_server, i_buf, sizeof(i_buf));
+        if (r == 0)
+        {
+            break;
+        }
+        ssize_t out = write(out_fd, i_buf, sizeof(i_buf));
+    } */
+
+    //ssize_t out = write(out_fd, i_buf, sizeof(i_buf));
+
+    int out_fd = open("image.img", O_CREAT | O_TRUNC | O_WRONLY, 0644);
+if (out_fd < 0) { perror("open image.img"); return 1; }
+
+char buf[4096];
+for (;;) {
+    ssize_t r = read(l_sock_server, buf, sizeof(buf));
+    if (r < 0) {
+        if (errno == EINTR) continue;
+        perror("read");
+        close(out_fd);
+        return 1;
+    }
+    if (r == 0) break; 
+
+    ssize_t off = 0;
+    while (off < r) {
+        ssize_t w = write(out_fd, buf + off, r - off);
+        if (w < 0) { if (errno == EINTR) continue; perror("write file"); close(out_fd); return 1; }
+        off += w;
+    }
+}
+close(out_fd);
+
+    
+
+
+
+
     // list of fd sources
-    pollfd l_read_poll[ 2 ];
+    /* pollfd l_read_poll[ 2 ];
 
     l_read_poll[ 0 ].fd = STDIN_FILENO;
     l_read_poll[ 0 ].events = POLLIN;
@@ -196,14 +257,14 @@ int main( int t_narg, char **t_args )
         if ( l_read_poll[ 0 ].revents & POLLIN )
         {
             //  read from stdin
-            int l_len = read( STDIN_FILENO, l_buf, sizeof( l_buf ) );
+            int l_len = read( STDIN_FILENO, l_resolution, sizeof( l_buf ) );
             if ( l_len < 0 )
                 log_msg( LOG_ERROR, "Unable to read from stdin." );
             else
                 log_msg( LOG_DEBUG, "Read %d bytes from stdin.", l_len );
 
             // send data to server
-            l_len = write( l_sock_server, l_buf, l_len );
+            l_len = write( l_sock_server, l_resolution, l_len );
             if ( l_len < 0 )
                 log_msg( LOG_ERROR, "Unable to send data to server." );
             else
@@ -229,7 +290,7 @@ int main( int t_narg, char **t_args )
                 log_msg( LOG_DEBUG, "Read %d bytes from server.", l_len );
 
             // display on stdout
-            l_len = write( STDOUT_FILENO, l_buf, l_len );
+            l_len = write( STDOUT_FILENO, l_resolution, l_len );
             if ( l_len < 0 )
                 log_msg( LOG_ERROR, "Unable to write to stdout." );
 
@@ -240,7 +301,7 @@ int main( int t_narg, char **t_args )
                 break;
             }
         }
-    }
+    } */
 
     // close socket
     close( l_sock_server );
