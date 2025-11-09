@@ -100,7 +100,6 @@ void help(int t_narg, char **t_args)
 
 //***************************************************************************
 
-
 void child_serve(int l_sock_listen, int l_sock_client, sockaddr_in l_srv_addr, pollfd l_read_poll[], int cl_num)
 {
     close(l_sock_listen);
@@ -134,7 +133,7 @@ void child_serve(int l_sock_listen, int l_sock_client, sockaddr_in l_srv_addr, p
         if (l_read_poll[1].revents & POLLIN)
         {
             // read data from socket
-            ssize_t l_len = read(l_sock_client, l_buf, sizeof(l_buf)-2);
+            ssize_t l_len = read(l_sock_client, l_buf, sizeof(l_buf) - 2);
             if (!l_len)
             {
                 log_msg(LOG_DEBUG, "Client closed socket!");
@@ -149,19 +148,19 @@ void child_serve(int l_sock_listen, int l_sock_client, sockaddr_in l_srv_addr, p
             }
             else
                 log_msg(LOG_DEBUG, "Read %d bytes from client.", l_len);
-            if (l_buf[l_len-2] == '!')
+            if (l_buf[l_len - 2] == '!')
             {
-                l_buf[l_len-1] = '\0';
+                l_buf[l_len - 1] = '\0';
             }
             else
             {
-                l_buf[l_len-1] = '!';
+                l_buf[l_len - 1] = '!';
                 l_buf[l_len] = '\0';
             }
             printf("\n");
             fflush(stdout);
 
-            //dubug
+            // dubug
             /* printf("l_len: %d\n", l_len);
             for (int i = 0; i < l_len; i++)
             {
@@ -195,50 +194,84 @@ void child_serve(int l_sock_listen, int l_sock_client, sockaddr_in l_srv_addr, p
             exit(0);
         }
 
-
-        //ressolution
+        // ressolution
         int counter = 0;
         bool isValid = false;
         for (size_t i = 0; i < strlen(l_buf); i++)
         {
-            if ((l_buf[i] == 'x') && (i > 0) && (i < strlen(l_buf)-2))
+            if ((l_buf[i] == 'x') && (i > 0) && (i < strlen(l_buf) - 2))
             {
                 for (int j = 0; j < strlen(l_buf); j++)
                 {
                     if (isdigit(l_buf[j]))
                     {
-                       counter++;
+                        counter++;
                     }
                 }
-                if (counter == strlen(l_buf)-2)   
+                if (counter == strlen(l_buf) - 2)
                 {
                     isValid = true;
                 }
             }
         }
-        //printf("counter: %d\n", counter);
-        //printf("str_len: %zu\n", strlen(l_buf));
-        //printf("isValid: %i\n", isValid);
-        
+        // printf("counter: %d\n", counter);
+        // printf("str_len: %zu\n", strlen(l_buf));
+        // printf("isValid: %i\n", isValid);
 
         if (isValid)
         {
-            pid_t p = fork();
-            if (p == 0)
+            int fd[2];
+            pipe(fd);
+            pid_t p1 = fork();
+
+            if (p1 == 0)
             {
-                dup2(l_sock_client, STDOUT_FILENO);
-                execlp("convert", "convert", "-resize", l_buf, "podzim.png", "-", NULL);
-                exit(0);
+                // DIEŤA 1: convert -> píše do rúry
+                // stdout -> fd[1]
+                dup2(fd[1], STDOUT_FILENO);
+                
+                close(fd[0]); // nečíta
+                close(fd[1]); // po dup2 netreba
+
+                // res_ex = "WxH!"
+                char res_ex[260];
+                snprintf(res_ex, sizeof(res_ex), "%s!", l_buf);
+
+                execlp("convert", "convert", "-resize", res_ex, "podzim.png", "-", NULL);
+                // ak sme tu, execlp zlyhalo
+                perror("execlp convert");
+                _exit(1);
             }
+
+            pid_t p2 = fork();
+
+            if (p2 == 0)
+            {
+                // DIEŤA 2: xz -> číta z rúry, píše do socketu
+                dup2(fd[0], STDIN_FILENO);
+                dup2(l_sock_client, STDOUT_FILENO);
+
+                close(fd[1]); // nezapisuje
+                close(fd[0]); // po dup2 netreba
+                // socket už máme dupnutý na stdout, pôvodný deskriptor môžeme nechať alebo zavrieť
+                // close(l_sock_client); // voliteľné, po dup2 už nie je nutný
+
+                execlp("xz", "xz", "-", "--stdout", NULL);
+                perror("execlp xz");
+                _exit(1);
+            }
+
+            // RODIČ (proces obsluhy klienta)
+            close(fd[0]);
+            close(fd[1]);
+            // veľmi dôležité: ak ich nezavrie rodič, xz neuvidí EOF
             wait(NULL);
-            close(l_sock_client),
+            wait(NULL);
+            close(l_sock_client);
             exit(0);
-            
         }
     }
 }
-
-
 
 int main(int t_narg, char **t_args)
 {
