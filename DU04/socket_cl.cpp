@@ -27,11 +27,9 @@
 #include <arpa/inet.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <unistd.h>
 #include <errno.h>
 #include <netdb.h>
 #include <pthread.h>
-#include <stdatomic.h>
 
 #define STR_CLOSE "close"
 #define MAX_LINE 256
@@ -40,7 +38,7 @@
 // log messages
 
 #define LOG_ERROR 0 // errors
-#define LOG_INFO 1  // information and notifications
+#define LOG_INFO  1 // information and notifications
 #define LOG_DEBUG 2 // debug messages
 
 int g_debug = LOG_INFO;
@@ -113,21 +111,19 @@ static ssize_t recv_line( int fd, char *buf, size_t cap )
     return (ssize_t)i;
 }
 
-
-
 static void send_str( int fd, const char *s )
 {
-    send( fd, s, (int)strlen(s), 0 );
+    send( fd, s, (int)strlen( s ), 0 );
 }
 
 //***************************************************************************
 // globálne pre vlákna
 
 static int g_sock = -1;
-static atomic_int g_rate_per_min = 60;
+static int g_rate_per_min = 60;
+static pthread_mutex_t g_rate_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// PRODUCER THREAD: číta jmena.txt, posiela riadky a čaká na OK
-// PRODUCER THREAD ...
+// PRODUCER THREAD
 static void *producer_thread(void *arg)
 {
     (void)arg;
@@ -139,10 +135,9 @@ static void *producer_thread(void *arg)
     {
         size_t n = strlen(line);
         while (n && (line[n-1]=='\n' || line[n-1]=='\r')) line[--n] = 0;
+        if (strlen(line) == 0) continue;
 
-        if (strlen(line) == 0) continue;            // preskoč prázdne riadky (istota)
-
-        printf("SEND: %s\n", line); fflush(stdout); // <<< DEBUG TU
+        printf("SEND: %s\n", line); fflush(stdout);
 
         char out[MAX_LINE+4];
         snprintf(out, sizeof(out), "%s\n", line);
@@ -151,7 +146,10 @@ static void *producer_thread(void *arg)
         char ack[MAX_LINE];
         if (!recv_line(g_sock, ack, sizeof(ack))) break;
 
-        int rate = atomic_load(&g_rate_per_min);
+        pthread_mutex_lock(&g_rate_mutex);
+        int rate = g_rate_per_min;
+        pthread_mutex_unlock(&g_rate_mutex);
+
         if (rate < 1) rate = 1;
         usleep((useconds_t)((60.0 / rate) * 1000000.0));
     }
@@ -159,117 +157,126 @@ static void *producer_thread(void *arg)
     return NULL;
 }
 
-// CONSUMER THREAD: prijíma mená, vypisuje, odpovedá OK
-static void *consumer_thread( void *arg )
+// CONSUMER THREAD
+static void *consumer_thread(void *arg)
 {
     (void)arg;
     char line[MAX_LINE];
     for (;;)
     {
-        if ( !recv_line( g_sock, line, sizeof(line) ) ) break;
-        printf( "RECV: %s\n", line );
-        send_str( g_sock, "OK\n" );
-        int rate = atomic_load(&g_rate_per_min);
+        if (!recv_line(g_sock, line, sizeof(line))) break;
+        printf("RECV: %s\n", line);
+        send_str(g_sock, "OK\n");
+
+        pthread_mutex_lock(&g_rate_mutex);
+        int rate = g_rate_per_min;
+        pthread_mutex_unlock(&g_rate_mutex);
+
         if (rate < 1) rate = 1;
         usleep((useconds_t)((60.0 / rate) * 1000000.0));
-
     }
     return NULL;
 }
 
 //***************************************************************************
 
-int main( int t_narg, char **t_args )
+int main(int t_narg, char **t_args)
 {
     if ( t_narg <= 2 ) help( t_narg, t_args );
 
     int l_port = 0;
-    char *l_host = nullptr;
-    char *l_role = nullptr;
+    char *l_host = NULL;
+    char *l_role = NULL;
 
-    for ( int i = 1; i < t_narg; i++ )
+    for (int i = 1; i < t_narg; i++)
     {
-        if ( !strcmp( t_args[i], "-d" ) ) g_debug = LOG_DEBUG;
-        if ( !strcmp( t_args[i], "-h" ) ) help( t_narg, t_args );
+        if (!strcmp(t_args[i], "-d")) g_debug = LOG_DEBUG;
+        if (!strcmp(t_args[i], "-h")) help(t_narg, t_args);
 
-        if ( *t_args[i] != '-' )
+        if (*t_args[i] != '-')
         {
-            if ( !l_host ) l_host = t_args[i];
-            else if ( !l_port ) l_port = atoi( t_args[i] );
-            else if ( !l_role ) l_role = t_args[i];
+            if (!l_host) l_host = t_args[i];
+            else if (!l_port) l_port = atoi(t_args[i]);
+            else if (!l_role) l_role = t_args[i];
         }
     }
 
-    if ( !l_host || !l_port || !l_role )
+    if (!l_host || !l_port || !l_role)
     {
-        log_msg( LOG_INFO, "Host, port or role is missing!" );
-        help( t_narg, t_args );
+        log_msg(LOG_INFO, "Host, port or role is missing!");
+        help(t_narg, t_args);
         exit(1);
     }
 
-    log_msg( LOG_INFO, "Connection to '%s':%d. Role: %s", l_host, l_port, l_role );
+    log_msg(LOG_INFO, "Connection to '%s':%d. Role: %s", l_host, l_port, l_role);
 
     addrinfo l_ai_req, *l_ai_ans;
-    bzero( &l_ai_req, sizeof( l_ai_req ) );
+    bzero(&l_ai_req, sizeof(l_ai_req));
     l_ai_req.ai_family = AF_INET;
     l_ai_req.ai_socktype = SOCK_STREAM;
 
-    int l_get_ai = getaddrinfo( l_host, nullptr, &l_ai_req, &l_ai_ans );
-    if ( l_get_ai ) { log_msg( LOG_ERROR, "Unknown host name!" ); exit(1); }
+    int l_get_ai = getaddrinfo(l_host, NULL, &l_ai_req, &l_ai_ans);
+    if (l_get_ai) { log_msg(LOG_ERROR, "Unknown host name!"); exit(1); }
 
     sockaddr_in l_cl_addr = *(sockaddr_in *)l_ai_ans->ai_addr;
-    l_cl_addr.sin_port = htons( l_port );
-    freeaddrinfo( l_ai_ans );
+    l_cl_addr.sin_port = htons(l_port);
+    freeaddrinfo(l_ai_ans);
 
-    g_sock = socket( AF_INET, SOCK_STREAM, 0 );
-    if ( g_sock == -1 ) { log_msg( LOG_ERROR, "Unable to create socket." ); exit(1); }
+    g_sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (g_sock == -1) { log_msg(LOG_ERROR, "Unable to create socket."); exit(1); }
 
-    if ( connect( g_sock, (sockaddr *)&l_cl_addr, sizeof( l_cl_addr ) ) < 0 )
-    { log_msg( LOG_ERROR, "Unable to connect server." ); exit(1); }
+    if (connect(g_sock, (sockaddr *)&l_cl_addr, sizeof(l_cl_addr)) < 0)
+    { log_msg(LOG_ERROR, "Unable to connect server."); exit(1); }
 
-    uint l_lsa = sizeof( l_cl_addr );
-    getsockname( g_sock, (sockaddr *)&l_cl_addr, &l_lsa );
-    log_msg( LOG_INFO, "My IP: '%s'  port: %d", inet_ntoa( l_cl_addr.sin_addr ), ntohs( l_cl_addr.sin_port ) );
-    getpeername( g_sock, (sockaddr *)&l_cl_addr, &l_lsa );
-    log_msg( LOG_INFO, "Server IP: '%s'  port: %d", inet_ntoa( l_cl_addr.sin_addr ), ntohs( l_cl_addr.sin_port ) );
+    uint l_lsa = sizeof(l_cl_addr);
+    getsockname(g_sock, (sockaddr *)&l_cl_addr, &l_lsa);
+    log_msg(LOG_INFO, "My IP: '%s'  port: %d", inet_ntoa(l_cl_addr.sin_addr), ntohs(l_cl_addr.sin_port));
+    getpeername(g_sock, (sockaddr *)&l_cl_addr, &l_lsa);
+    log_msg(LOG_INFO, "Server IP: '%s'  port: %d", inet_ntoa(l_cl_addr.sin_addr), ntohs(l_cl_addr.sin_port));
 
     // očakávaj Task?\n
     char line[MAX_LINE];
-    recv_line( g_sock, line, sizeof(line) );
+    recv_line(g_sock, line, sizeof(line));
 
     // pošli rolu
     char out[MAX_LINE];
-    snprintf( out, sizeof(out), "%s\n", l_role );
+    snprintf(out, sizeof(out), "%s\n", l_role);
     printf("SEND: %s\n", line);
     fflush(stdout);
-    send_str( g_sock, out );
+    send_str(g_sock, out);
 
     pthread_t th;
 
-    if ( !strcmp( l_role, "producer" ) )
+    if (!strcmp(l_role, "producer"))
     {
-        pthread_create( &th, NULL, producer_thread, NULL );
+        pthread_create(&th, NULL, producer_thread, NULL);
 
-        // hlavné vlákno: čísla zo stdin menia rýchlosť X/min
+        // čítaj čísla zo stdin (menenie rýchlosti)
         for (;;)
         {
             char buf[64];
-            if ( !fgets( buf, sizeof(buf), stdin ) ) break;
-            int x = atoi( buf );
-            if ( x > 0 ) { atomic_store( &g_rate_per_min, x ); printf( "Rate set to %d per minute\n", x ); }
+            if (!fgets(buf, sizeof(buf), stdin)) break;
+            int x = atoi(buf);
+            if (x > 0)
+            {
+                pthread_mutex_lock(&g_rate_mutex);
+                g_rate_per_min = x;
+                pthread_mutex_unlock(&g_rate_mutex);
+                printf("Rate set to %d per minute\n", x);
+            }
         }
-        pthread_join( th, NULL );
+        pthread_join(th, NULL);
     }
-    else if ( !strcmp( l_role, "consumer" ) )
+    else if (!strcmp(l_role, "consumer"))
     {
-        pthread_create( &th, NULL, consumer_thread, NULL );
-        pthread_join( th, NULL );
+        pthread_create(&th, NULL, consumer_thread, NULL);
+        pthread_join(th, NULL);
     }
     else
     {
-        log_msg( LOG_INFO, "Unknown role." );
+        log_msg(LOG_INFO, "Unknown role.");
     }
 
-    close( g_sock );
+    close(g_sock);
     return 0;
 }
