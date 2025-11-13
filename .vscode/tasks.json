@@ -34,6 +34,14 @@
             }
         },
         {
+            "label": "build-consumer-prod",
+            "type": "shell",
+            "command": "make",
+            "options": {
+                "cwd": "${workspaceFolder}/DU04_1"
+            }
+        },
+        {
             "type": "cppbuild",
             "label": "C/C++: gcc build active file",
             "command": "/usr/bin/gcc",
