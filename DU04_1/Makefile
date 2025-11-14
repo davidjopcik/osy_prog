@@ -14,7 +14,7 @@ TARGETS=$(SOURCES:%.cpp=%)
 
 CPPFLAGS += -g -pthread -std=c++11 -Wall 
 LDFLAGS += -pthread
-//LDLIBS += -lrt
+LDLIBS += -lrt
 
 .PHONY: all clean 
 

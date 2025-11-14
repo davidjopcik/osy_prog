@@ -165,7 +165,7 @@ void run_consumer_client(int sock) {
             return;
         }
         ack[r] = '\0';
-        if (strcmp(ack, "Ok"))
+        if (!strcmp(ack, "Ok"))
         {
             log_msg(LOG_INFO, "Consumer sent invalid ACK: %s", ack);
         }

@@ -217,7 +217,7 @@ int main( int t_narg, char **t_args )
             int rr = read(l_sock_server, line, sizeof(line)-1);
             if (rr <= 0) break;
             line[rr] = '\0';
-            line[strcspn(line, "\r\n")] = '\0';
+            //line[strcspn(line, "\r\n")] = '\0';
 
             // display item from server
             write(STDOUT_FILENO, line, rr);
