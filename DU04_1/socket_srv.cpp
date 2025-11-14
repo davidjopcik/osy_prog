@@ -150,11 +150,13 @@ void run_producer_client(int sock) {
     }
 }
 
+int item_N = 0;
+
 void run_consumer_client(int sock) {
     char item[256];
     char ack[256];
 
-    while (1)
+    while (item_N != 10)
     {
         consumer(item);
         write(sock, item, strlen(item));
@@ -170,7 +172,9 @@ void run_consumer_client(int sock) {
         {
             log_msg(LOG_INFO, "Consumer sent invalid ACK: %s", ack);
         }
+        item_N++;
     } 
+    item_N = 0;
 } 
 
 void *handle_client(void *arg) {
