@@ -157,9 +157,11 @@ void run_consumer_client(int sock) {
     while (1)
     {
         consumer(item);
-        write(sock, item, strlen(item));
-        write(sock, "\n", 1);
 
+        if(item[0] == 'B') {
+            write(sock, item, strlen(item));
+            write(sock, "\n", 1); 
+        
         int r = read(sock, ack, sizeof(ack) - 1);
         if (r <= 0) {
             log_msg(LOG_INFO, "Consumer client disconnected");
@@ -169,6 +171,7 @@ void run_consumer_client(int sock) {
         if (!strcmp(ack, "Ok"))
         {
             log_msg(LOG_INFO, "Consumer sent invalid ACK: %s", ack);
+        }
         }
     } 
 } 
