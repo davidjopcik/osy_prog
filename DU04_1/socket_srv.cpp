@@ -129,6 +129,7 @@ void consumer(char *item) {
     head = (head + 1) % N;
     sem_post(&mutex);
     sem_post(&empty);
+
 }
 
 void run_producer_client(int sock) {

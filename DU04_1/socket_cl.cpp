@@ -4,7 +4,11 @@
 //
 // Petr Olivka, Dept. of Computer Science, petr.olivka@vsb.cz, 2021
 //
-// Socket client – upravený pre producer/consumer úlohu.
+// Example of socket server/client.
+//
+// This program is example of socket client.
+// The mandatory arguments of program is IP adress or name of server and
+// a port number.
 //
 //***************************************************************************
 
@@ -23,6 +27,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netdb.h>
+#include <pthread.h>
 
 #define STR_CLOSE   "close"
 
@@ -81,6 +86,93 @@ void help( int t_narg, char **t_args )
         g_debug = LOG_DEBUG;
 }
 
+
+static int g_names_per_min = 60;   // default 60 mien za minútu
+
+//***************************************************************************
+// PRODUCER thread 
+
+void *producer_thread(void *arg)
+{
+    int sock = (int)(intptr_t)arg;
+    FILE *f = fopen("jmena.txt", "r");
+    if (!f)
+    {
+        log_msg(LOG_ERROR, "Unable to open jmena.txt");
+        return NULL;
+    }
+
+    char line[256];
+
+    while (fgets(line, sizeof(line), f))
+    {
+        line[strcspn(line, "\r\n")] = '\0';
+        if (line[0] == '\0') continue;
+
+        size_t len = strlen(line);
+        char sendbuf[256];
+        snprintf(sendbuf, sizeof(sendbuf), "%s\n", line);
+
+        if (write(sock, sendbuf, strlen(sendbuf)) <= 0)
+        {
+            log_msg(LOG_INFO, "Producer: write to server failed, ending.");
+            break;
+        }
+
+        // čakáme na Ok\n
+        char ack[256];
+        int r = read(sock, ack, sizeof(ack)-1);
+        if (r <= 0)
+        {
+            log_msg(LOG_INFO, "Producer: server closed connection.");
+            break;
+        }
+        ack[r] = '\0';
+        //write(STDOUT_FILENO, ack, r);
+
+        int rate = g_names_per_min;
+        if (rate <= 0) rate = 1;
+        double sec_per_name = 60.0 / (double)rate;
+        useconds_t delay_us = (useconds_t)(sec_per_name * 1000000.0);
+        usleep(delay_us);
+    }
+
+    fclose(f);
+    log_msg(LOG_INFO, "Producer thread finished (EOF in jmena.txt).");
+    return NULL;
+}
+
+//***************************************************************************
+// CONSUMER thread 
+
+void *consumer_thread(void *arg)
+{
+    int sock = (int)(intptr_t)arg;
+    char line[256];
+
+    while (1)
+    {
+        int rr = read(sock, line, sizeof(line)-1);
+        if (rr <= 0)
+        {
+            log_msg(LOG_INFO, "Consumer: server closed connection.");
+            break;
+        }
+        line[rr] = '\0';
+
+        write(STDOUT_FILENO, line, rr);
+
+        if (write(sock, "Ok\n", 3) <= 0)
+        {
+            log_msg(LOG_INFO, "Consumer: write Ok failed.");
+            break;
+        }
+    }
+
+    log_msg(LOG_INFO, "Consumer thread finished.");
+    return NULL;
+}
+
 //***************************************************************************
 // main
 
@@ -91,6 +183,7 @@ int main( int t_narg, char **t_args )
     int l_port = 0;
     char *l_host = NULL;
 
+    // parsing arguments
     for ( int i = 1; i < t_narg; i++ )
     {
         if ( !strcmp(t_args[i], "-d") )
@@ -116,7 +209,6 @@ int main( int t_narg, char **t_args )
 
     log_msg(LOG_INFO, "Connection to '%s':%d.", l_host, l_port);
 
-    // hostname resolution
     addrinfo l_ai_req, *l_ai_ans;
     bzero(&l_ai_req, sizeof(l_ai_req));
     l_ai_req.ai_family = AF_INET;
@@ -140,19 +232,26 @@ int main( int t_narg, char **t_args )
         exit(1);
     }
 
-    // connect
+    // connect to server
     if ( connect(l_sock_server, (sockaddr*)&l_cl_addr, sizeof(l_cl_addr)) < 0 )
     {
         log_msg(LOG_ERROR, "Unable to connect server.");
         exit(1);
     }
 
-    log_msg(LOG_INFO, "Connected.");
+    uint l_lsa = sizeof( l_cl_addr );
+    // my IP
+    getsockname( l_sock_server, ( sockaddr * ) &l_cl_addr, &l_lsa );
+    log_msg( LOG_INFO, "My IP: '%s'  port: %d",
+             inet_ntoa( l_cl_addr.sin_addr ), ntohs( l_cl_addr.sin_port ) );
+    // server IP
+    getpeername( l_sock_server, ( sockaddr * ) &l_cl_addr, &l_lsa );
+    log_msg( LOG_INFO, "Server IP: '%s'  port: %d",
+             inet_ntoa( l_cl_addr.sin_addr ), ntohs( l_cl_addr.sin_port ) );
 
-    //***************************************************************************
-    // 1) READ "Task?" FROM SERVER
-    //***************************************************************************
+    log_msg( LOG_INFO, "Enter 'close' to close application." );
 
+    //READ "Task?" FROM SERVER
     char l_buf[256];
     int r = read(l_sock_server, l_buf, sizeof(l_buf)-1);
     if (r <= 0) { log_msg(LOG_ERROR, "Server closed."); exit(1); }
@@ -160,71 +259,51 @@ int main( int t_narg, char **t_args )
 
     write(STDOUT_FILENO, l_buf, r);
 
-    //***************************************************************************
-    // 2) USER CHOOSES ROLE FROM STDIN
-    //***************************************************************************
-
+    // CHOOSE ROLE
     int len = read(STDIN_FILENO, l_buf, sizeof(l_buf)-1);
     if (len <= 0) exit(1);
     l_buf[len] = '\0';
 
-    // send chosen role
     write(l_sock_server, l_buf, len);
 
-    // trim newline
     l_buf[strcspn(l_buf, "\r\n")] = '\0';
 
-    //***************************************************************************
-    // 3) PRODUCER MODE
-    //***************************************************************************
+    // PRODUCER MODE – thread
 
     if ( !strcmp(l_buf, "producer") )
     {
         log_msg(LOG_INFO, "Entering PRODUCER mode.");
+        pthread_t tid;
+        pthread_create(&tid, NULL, producer_thread, (void*)(intptr_t)l_sock_server);
 
+        char line[256];
         while (1)
         {
-            char line[256];
-
             int n = read(STDIN_FILENO, line, sizeof(line)-1);
             if (n <= 0) break;
             line[n] = '\0';
 
-            // send item to server
-            write(l_sock_server, line, n);
-
-            // wait for Ok\n
-            int rr = read(l_sock_server, line, sizeof(line)-1);
-            if (rr <= 0) break;
-            line[rr] = '\0';
-
-            write(STDOUT_FILENO, line, rr);
+            int v = atoi(line);
+            if (v > 0)
+            {
+                g_names_per_min = v;
+                log_msg(LOG_INFO, "New speed: %d names/min", g_names_per_min);
+            }
         }
+
+        pthread_cancel(tid); 
+        pthread_join(tid, NULL);
     }
 
-    //***************************************************************************
-    // 4) CONSUMER MODE
-    //***************************************************************************
+    // CONSUMER MODE – thread
 
     else if ( !strcmp(l_buf, "consumer") )
     {
         log_msg(LOG_INFO, "Entering CONSUMER mode.");
+        pthread_t tid;
+        pthread_create(&tid, NULL, consumer_thread, (void*)(intptr_t)l_sock_server);
 
-        while (1)
-        {
-            char line[256];
-
-            int rr = read(l_sock_server, line, sizeof(line)-1);
-            if (rr <= 0) break;
-            line[rr] = '\0';
-            //line[strcspn(line, "\r\n")] = '\0';
-
-            // display item from server
-            write(STDOUT_FILENO, line, rr);
-
-            // send ACK
-            write(l_sock_server, "Ok\n", 3);
-        }
+        pthread_join(tid, NULL);
     }
 
     else
