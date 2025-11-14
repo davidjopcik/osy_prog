@@ -280,8 +280,11 @@ int main( int t_narg, char **t_args )
         while (1)
         {
             int n = read(STDIN_FILENO, line, sizeof(line)-1);
+            
             if (n <= 0) break;
             line[n] = '\0';
+            write(l_sock_server, line, 6);
+
 
             int v = atoi(line);
             if (v > 0)

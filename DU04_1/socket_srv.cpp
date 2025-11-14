@@ -98,12 +98,14 @@ void help( int t_narg, char **t_args )
 #define MAX_STR 256
 
 static char buffer[N][MAX_STR];
+int count = 0;
 
 static int head = 0;
 static int tail = 0;
 static sem_t mutex;
 static sem_t empty;
 static sem_t full;
+
 
 void init_queue() {
     sem_init(&mutex, 0, 1);
@@ -132,8 +134,26 @@ void consumer(char *item) {
 
 }
 
+void queue_size()
+{
+    int full_val = 0;
+    int empty_val = 0;
+
+    sem_getvalue(&full, &full_val);
+    sem_getvalue(&empty, &empty_val);
+
+    log_msg(LOG_INFO, "full=%d, empty=%d", full_val, empty_val);
+
+    if (full_val == 0)
+        log_msg(LOG_INFO, "buffer je PRÁZDNY");
+    else if (empty_val == 0)
+        log_msg(LOG_INFO, "buffer je PLNÝ");
+}
+
 void run_producer_client(int sock) {
     char item[256];
+
+
 
     while (1)
     {
@@ -142,9 +162,16 @@ void run_producer_client(int sock) {
             log_msg(LOG_INFO, "Producer client disconnected");
             return;
         }
+        //if(!strcmp(item, "STATUS")){
+            queue_size();
+        //}
         item[r] = '\0';
         item[strcspn(item, "\r\n")] = '\0'; 
         log_msg(LOG_INFO, "PROD dal: %s", item);
+
+        //printf("Tail: %d, Head: %d\n", tail, head);
+        
+
         producer(item);
         write(sock, "Ok\n", 3);
     }
@@ -170,6 +197,7 @@ void run_consumer_client(int sock) {
         {
             log_msg(LOG_INFO, "Consumer sent invalid ACK: %s", ack);
         }
+        sleep(1);
     } 
 } 
 
