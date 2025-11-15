@@ -105,6 +105,9 @@ static sem_t mutex;
 static sem_t empty;
 static sem_t full;
 
+
+int item_num = 0;
+
 void init_queue() {
     sem_init(&mutex, 0, 1);
     sem_init(&empty, 0, N);
@@ -117,6 +120,7 @@ void producer(char *item) {
     strncpy(buffer[tail], item, MAX_STR-1);
     buffer[tail][MAX_STR-1] = '\0';
     tail = (tail+1) % N;
+    item_num++;
     sem_post(&mutex);
     sem_post(&full);
 }
@@ -134,6 +138,7 @@ void consumer(char *item) {
 
 void run_producer_client(int sock) {
     char item[256];
+    char ack[256];
 
     while (1)
     {
@@ -144,6 +149,9 @@ void run_producer_client(int sock) {
         }
         item[r] = '\0';
         item[strcspn(item, "\r\n")] = '\0'; 
+        
+         
+
         log_msg(LOG_INFO, "PROD dal: %s", item);
         producer(item);
         write(sock, "Ok\n", 3);
@@ -157,8 +165,14 @@ void run_consumer_client(int sock) {
     while (1)
     {
         consumer(item);
-        write(sock, item, strlen(item));
+        
+        size_t len = strlen(item);
+        char sendbuf[256];
+        snprintf(sendbuf, sizeof(sendbuf), "%d: %s", item_num, item);
+
+        write(sock, sendbuf, strlen(sendbuf));
         write(sock, "\n", 1);
+    
 
         int r = read(sock, ack, sizeof(ack) - 1);
         if (r <= 0) {
@@ -166,6 +180,18 @@ void run_consumer_client(int sock) {
             return;
         }
         ack[r] = '\0';
+
+
+        /*  if(!strcmp(ack, "-")){
+            sem_wait(&mutex);
+            continue;
+        }
+        if(!strcmp(ack,'+')){
+            sem_post(&mutex);
+            continue;
+        } 
+  */
+
         if (!strcmp(ack, "Ok"))
         {
             log_msg(LOG_INFO, "Consumer sent invalid ACK: %s", ack);

@@ -95,14 +95,16 @@ static int g_names_per_min = 60;   // default 60 mien za minútu
 void *producer_thread(void *arg)
 {
     int sock = (int)(intptr_t)arg;
-    FILE *f = fopen("jmena.txt", "r");
+    //FILE *f = fopen("jmena.txt", "r");
+    FILE *f = fopen("podzim.ppm", "r");
     if (!f)
     {
         log_msg(LOG_ERROR, "Unable to open jmena.txt");
         return NULL;
     }
 
-    char line[256];
+   // char line[256];
+    char line[2112];
 
     while (fgets(line, sizeof(line), f))
     {
@@ -119,6 +121,9 @@ void *producer_thread(void *arg)
             break;
         }
 
+
+       
+
         // čakáme na Ok\n
         char ack[256];
         int r = read(sock, ack, sizeof(ack)-1);
@@ -129,6 +134,10 @@ void *producer_thread(void *arg)
         }
         ack[r] = '\0';
         //write(STDOUT_FILENO, ack, r);
+
+        
+        
+
 
         int rate = g_names_per_min;
         if (rate <= 0) rate = 1;
@@ -152,13 +161,19 @@ void *consumer_thread(void *arg)
 
     while (1)
     {
-        int rr = read(sock, line, sizeof(line)-1);
+
+        //char line2[256];
+        
+            //int rr = read(STDIN_FILENO, line, sizeof(line)-1);
+            int rr = read(sock, line, sizeof(line)-1);
+            line[rr] = '\0';
+
         if (rr <= 0)
         {
             log_msg(LOG_INFO, "Consumer: server closed connection.");
             break;
         }
-        line[rr] = '\0';
+        //line[rr] = '\0';
 
         write(STDOUT_FILENO, line, rr);
 
@@ -168,6 +183,12 @@ void *consumer_thread(void *arg)
             break;
         }
     }
+
+
+
+    
+
+
 
     log_msg(LOG_INFO, "Consumer thread finished.");
     return NULL;
@@ -283,6 +304,20 @@ int main( int t_narg, char **t_args )
             if (n <= 0) break;
             line[n] = '\0';
 
+
+ 
+            if(!strcmp(line, "-")) {
+                    printf("============ada=====\n");
+                while(1){
+                    if(!strcmp(line, "+")) {
+                        break;
+                    };
+                    sleep(1);
+                }
+                };
+  
+
+
             int v = atoi(line);
             if (v > 0)
             {
@@ -299,6 +334,7 @@ int main( int t_narg, char **t_args )
 
     else if ( !strcmp(l_buf, "consumer") )
     {
+
         log_msg(LOG_INFO, "Entering CONSUMER mode.");
         pthread_t tid;
         pthread_create(&tid, NULL, consumer_thread, (void*)(intptr_t)l_sock_server);
