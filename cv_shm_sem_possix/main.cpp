@@ -7,7 +7,7 @@
 #include <sys/stat.h>   // mode_t, 0666
 #include <sys/mman.h>   // shm_open, mmap, PROT_*, MAP_*
 #include <semaphore.h>  // sem_open, sem_wait, sem_post
-#include <mqueue.h>     // mq_open, mq_send, mq_receive
+//#include <mqueue.h>     // mq_open, mq_send, mq_receive
 #include <sys/wait.h>   // wait
 
 typedef struct {
@@ -26,6 +26,7 @@ void sem_open_test(){
     printf("Som v kritickej sekcii...\n");
     sleep(3);
     printf("Opustam kriticku sekciu...\n");
+    sem_unlink(SEM_NAME);
 }
 
 void demo_shm_open_mmap() {
@@ -36,8 +37,20 @@ void demo_shm_open_mmap() {
     ftruncate(fd, size);
 
     shm_buffer_t *buf = (shm_buffer_t *)mmap(NULL, size, PROT_READ |PROT_WRITE, MAP_SHARED, fd, 0);
-    
+
+    buf->head = 0;
+    buf->tail = 0;
+    buf->capacity = 8;
+    buf->data[0] = 123;
+
+     printf("Do shared memory som zapisal hodnotu data[0] = %d\n", buf->data[0]);
+
+    close(fd);
 }
+
+
+
+   
 
 
 
