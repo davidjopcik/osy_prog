@@ -121,10 +121,6 @@ void *producer_thread(void *arg)
             break;
         }
 
-
-       
-
-        // čakáme na Ok\n
         char ack[256];
         int r = read(sock, ack, sizeof(ack)-1);
         if (r <= 0)
@@ -183,12 +179,6 @@ void *consumer_thread(void *arg)
             break;
         }
     }
-
-
-
-    
-
-
 
     log_msg(LOG_INFO, "Consumer thread finished.");
     return NULL;
@@ -290,7 +280,6 @@ int main( int t_narg, char **t_args )
     l_buf[strcspn(l_buf, "\r\n")] = '\0';
 
     // PRODUCER MODE – thread
-
     if ( !strcmp(l_buf, "producer") )
     {
         log_msg(LOG_INFO, "Entering PRODUCER mode.");
@@ -331,7 +320,6 @@ int main( int t_narg, char **t_args )
     }
 
     // CONSUMER MODE – thread
-
     else if ( !strcmp(l_buf, "consumer") )
     {
 

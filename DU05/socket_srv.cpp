@@ -199,8 +199,6 @@ void init_shm() {
         g_shm->tail = 0;
         g_shm->item_num = 0;
         log_msg(LOG_INFO, "SHM initialized (first process).");
-
-
     }
     else{
         log_msg(LOG_INFO, "SHM attached (existing).");
@@ -236,8 +234,6 @@ void init_ipc() {
         init_shm();
         init_queue();
     }
-    
-    
 }
 
 
@@ -262,7 +258,6 @@ void producer(char *item) {
         {
             log_msg(LOG_ERROR, "mq_send failed");
         }
-        
     }
 }
 
@@ -304,8 +299,6 @@ void run_producer_client(int sock) {
         item[r] = '\0';
         item[strcspn(item, "\r\n")] = '\0'; 
         
-         
-
         log_msg(LOG_INFO, "PROD dal: %s", item);
         producer(item);
         write(sock, "Ok\n", 3);
@@ -498,7 +491,7 @@ int main( int t_narg, char **t_args )
             if ( l_poll < 0 )
             {
                 if ( errno == EINTR ) {
-                    continue;  // len signal, skúsime znova
+                    continue;  
                 }
                 log_msg( LOG_ERROR, "Function poll failed!" );
                 exit( 1 );
@@ -577,15 +570,12 @@ int main( int t_narg, char **t_args )
                             mq_close(g_mq);
                         }
                     }
-
                     exit(0);
                 }
                 else if(pid > 0) {
                     close(l_sock_client);
                 }
-                
-            }
-        
+            }   
     }
 
     return 0;
