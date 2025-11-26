@@ -95,8 +95,8 @@ static int g_names_per_min = 60;   // default 60 mien za minútu
 void *producer_thread(void *arg)
 {
     int sock = (int)(intptr_t)arg;
-    //FILE *f = fopen("jmena.txt", "r");
-    FILE *f = fopen("podzim.ppm", "r");
+    FILE *f = fopen("jmena.txt", "r");
+    //FILE *f = fopen("podzim.ppm", "r");
     if (!f)
     {
         log_msg(LOG_ERROR, "Unable to open jmena.txt");

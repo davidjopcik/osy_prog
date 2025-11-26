@@ -32,6 +32,7 @@
 #include <semaphore.h>
 #include <signal.h>
 #include <errno.h>
+#include <mqueue.h>
 
 #define STR_CLOSE   "close"
 #define STR_QUIT    "quit"
@@ -43,6 +44,7 @@
 #define SEM_EMPTY_NAME  "/pc_empty"
 #define SEM_FULL_NAME   "/pc_full"
 #define SHM_NAME        "/pc_buffer"
+#define MQ_NAME         "/pc_mq"
 
 struct shm_data {
     char buffer[N][MAX_STR];
@@ -51,12 +53,20 @@ struct shm_data {
     int item_num;
 };
 
+typedef enum
+{
+    MODE_SHM, MODE_MQ
+} queue_mode_t;
+
+static queue_mode_t g_mode = MODE_SHM;
+
 static shm_data *g_shm = NULL;
 static int g_shm_fd = -1;
 
 static sem_t *mutex;
 static sem_t *empty;
 static sem_t *full;
+static mqd_t g_mq = (mqd_t)-1;
 
 //***************************************************************************
 // log messages
@@ -111,6 +121,8 @@ void help( int t_narg, char **t_args )
             "\n"
             "    -d  debug mode \n"
             "    -h  this help\n"
+            "    -shm  use shared memory buffer (default)\n"
+            "    -mq   use POSIX message queue\n"
             "\n", t_args[ 0 ] );
 
         exit( 0 );
@@ -124,7 +136,8 @@ void help( int t_narg, char **t_args )
         sem_unlink(SEM_MUTEX_NAME);
         sem_unlink(SEM_EMPTY_NAME);
         sem_unlink(SEM_FULL_NAME);
-        sem_unlink(SHM_NAME);
+        shm_unlink(SHM_NAME);
+        mq_unlink(MQ_NAME);
         exit(0);
     }
        
@@ -138,13 +151,13 @@ void init_queue() {
         exit(1);
     }
 
-    empty = sem_open(SEM_EMPTY_NAME, O_CREAT, 0666, 1);
+    empty = sem_open(SEM_EMPTY_NAME, O_CREAT, 0666, N);
     if (empty == SEM_FAILED) {
         log_msg(LOG_ERROR, "sem_open failed");
         exit(1);
     }
 
-    full = sem_open(SEM_FULL_NAME, O_CREAT, 0666, 1);
+    full = sem_open(SEM_FULL_NAME, O_CREAT, 0666, 0);
     if (full == SEM_FAILED) {
         log_msg(LOG_ERROR, "sem_open failed");
         exit(1);
@@ -152,7 +165,7 @@ void init_queue() {
 }
 
 void init_shm() {
-    int first = 1;
+    int first = 0;
     g_shm_fd = shm_open(SHM_NAME, O_RDWR, 0666);
     if (g_shm_fd < 0)
     {
@@ -177,40 +190,104 @@ void init_shm() {
         exit(1);
     }
     if(first) {
+        sem_unlink(SEM_MUTEX_NAME);
+        sem_unlink(SEM_EMPTY_NAME);
+        sem_unlink(SEM_FULL_NAME);
+
         memset(g_shm, 0, sizeof(*g_shm));
         g_shm->head = 0;
         g_shm->tail = 0;
         g_shm->item_num = 0;
         log_msg(LOG_INFO, "SHM initialized (first process).");
+
+
     }
     else{
         log_msg(LOG_INFO, "SHM attached (existing).");
     }
+}
+
+void init_mq() {
+    struct mq_attr attr;
+    memset(&attr, 0, sizeof(attr));
+    attr.mq_maxmsg = N;
+    attr.mq_msgsize = MAX_STR;
+
+    g_mq = mq_open(MQ_NAME, O_RDWR);
+    if (g_mq == (mqd_t)-1) {
+        log_msg(LOG_INFO, "MQ not found, creating new.");
+        g_mq = mq_open(MQ_NAME, O_CREAT | O_RDWR, 0666, &attr);
+        if (g_mq == (mqd_t)-1) {
+            log_msg(LOG_ERROR, "mq_open(%s) failed", MQ_NAME);
+            exit(1);
+        }
+    } else {
+        log_msg(LOG_INFO, "MQ opened (existing).");
+    }
+}
+
+void init_ipc() {
+    if (g_mode == MODE_MQ)
+    {
+        init_mq();
+    }
+    else
+    {
+        init_shm();
+        init_queue();
+    }
+    
     
 }
 
 
 void producer(char *item) {
-    sem_wait(empty);
-    sem_wait(mutex);
+    if (g_mode == MODE_SHM)
+    {
+        sem_wait(empty);
+        sem_wait(mutex);
 
-    strncpy(g_shm->buffer[g_shm->tail], item, MAX_STR-1);
-    g_shm->buffer[g_shm->tail][MAX_STR-1] = '\0';
-    g_shm->tail = (g_shm->tail+1) % N;
-    g_shm->item_num++;
-    sem_post(mutex);
-    sem_post(full);
+        strncpy(g_shm->buffer[g_shm->tail], item, MAX_STR-1);
+        g_shm->buffer[g_shm->tail][MAX_STR-1] = '\0';
+        g_shm->tail = (g_shm->tail+1) % N;
+        g_shm->item_num++;
+        sem_post(mutex);
+        sem_post(full);
+    }
+    else
+    {
+        ssize_t len = strnlen(item, MAX_STR -1);
+        item[len] = '\0';
+        if (mq_send(g_mq, item, len +1, 0) < 0)
+        {
+            log_msg(LOG_ERROR, "mq_send failed");
+        }
+        
+    }
 }
 
 void consumer(char *item) {
-    sem_wait(full);
-    sem_wait(mutex);
-    strncpy(item, g_shm->buffer[g_shm->head], MAX_STR-1);
-    item[MAX_STR-1] = '\0';
-    g_shm->head = (g_shm->head + 1) % N;
-    sem_post(mutex);
-    sem_post(empty);
-
+    if (g_mode == MODE_SHM)
+    {
+        sem_wait(full);
+        sem_wait(mutex);
+        strncpy(item, g_shm->buffer[g_shm->head], MAX_STR-1);
+        item[MAX_STR-1] = '\0';
+        g_shm->head = (g_shm->head + 1) % N;
+        sem_post(mutex);
+        sem_post(empty);
+    }
+    else
+    {
+        ssize_t n = mq_receive(g_mq, item, MAX_STR, NULL);
+        item[MAX_STR-1] = '\0';
+        if (n < 0) {
+            log_msg(LOG_ERROR, "mq_receive failed");
+            item[0] = '\0';
+        } else {
+            item[n > 0 ? n - 1 : 0] = '\0'; 
+        }
+    }
 }
 
 void run_producer_client(int sock) {
@@ -238,14 +315,25 @@ void run_producer_client(int sock) {
 void run_consumer_client(int sock) {
     char item[256];
     char ack[256];
+    int local_num = 0;
 
     while (1)
     {
         consumer(item);
+
+        int num_to_print;
+        if (g_mode == MODE_SHM)
+        {
+            num_to_print = g_shm->item_num;
+        }
+        else
+        {
+            num_to_print = ++local_num;
+        }
         
         size_t len = strlen(item);
         char sendbuf[256];
-        snprintf(sendbuf, sizeof(sendbuf), "%d: %s", g_shm->item_num, item);
+        snprintf(sendbuf, sizeof(sendbuf), "%d: %s", num_to_print, item);
 
         write(sock, sendbuf, strlen(sendbuf));
         write(sock, "\n", 1);
@@ -325,11 +413,22 @@ int main( int t_narg, char **t_args )
         if ( !strcmp( t_args[ i ], "-h" ) )
             help( t_narg, t_args );
 
+        if ( !strcmp( t_args[ i ], "-r" ) )
+            help( t_narg, t_args );
+
+        if ( !strcmp( t_args[ i ], "-shm" ) )
+            g_mode = MODE_SHM;
+
+        if ( !strcmp( t_args[ i ], "-mq" ) )
+            g_mode = MODE_MQ;
+
+
         if ( *t_args[ i ] != '-' && !l_port )
         {
             l_port = atoi( t_args[ i ] );
             break;
         }
+        
     }
 
     if ( l_port <= 0 )
@@ -377,8 +476,7 @@ int main( int t_narg, char **t_args )
 
     log_msg( LOG_INFO, "Enter 'quit' to quit server." );
 
-    init_shm();
-    init_queue();
+    init_ipc();
     signal( SIGCHLD, SIG_IGN );
     // go!
     while ( 1 )
@@ -459,19 +557,27 @@ int main( int t_narg, char **t_args )
                     //child
                     close(l_sock_listen);
                     handle_client((void*)(intptr_t)l_sock_client);
-                    sem_close(mutex);
-                    sem_close(empty);
-                    sem_close(full);
-                    if (g_shm)
+                    if (g_mode == MODE_SHM)
                     {
-                        munmap(g_shm, sizeof(*g_shm));
-                    }
-                    if (g_shm_fd >= 0)
+                        sem_close(mutex);
+                        sem_close(empty);
+                        sem_close(full);
+                        if (g_shm)
+                        {
+                            munmap(g_shm, sizeof(*g_shm));
+                        }
+                        if (g_shm_fd >= 0)
+                        {
+                            close(g_shm_fd);
+                        }
+                    } else
                     {
-                        close(g_shm_fd);
+                        if (g_mq != (mqd_t)-1)  
+                        {
+                            mq_close(g_mq);
+                        }
                     }
-                    
-                    
+
                     exit(0);
                 }
                 else if(pid > 0) {
