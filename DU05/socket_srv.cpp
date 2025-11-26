@@ -22,6 +22,8 @@
 #include <sys/socket.h>
 #include <sys/param.h>
 #include <sys/time.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -33,6 +35,28 @@
 
 #define STR_CLOSE   "close"
 #define STR_QUIT    "quit"
+
+#define N 8
+#define MAX_STR 256
+
+#define SEM_MUTEX_NAME  "/pc_mutex"
+#define SEM_EMPTY_NAME  "/pc_empty"
+#define SEM_FULL_NAME   "/pc_full"
+#define SHM_NAME        "/pc_buffer"
+
+struct shm_data {
+    char buffer[N][MAX_STR];
+    int head;
+    int tail;
+    int item_num;
+};
+
+static shm_data *g_shm = NULL;
+static int g_shm_fd = -1;
+
+static sem_t *mutex;
+static sem_t *empty;
+static sem_t *full;
 
 //***************************************************************************
 // log messages
@@ -94,49 +118,98 @@ void help( int t_narg, char **t_args )
 
     if ( !strcmp( t_args[ 1 ], "-d" ) )
         g_debug = LOG_DEBUG;
+
+    if ( !strcmp( t_args[ 1 ], "-r" ) ) {
+        log_msg(LOG_INFO, "Cleaning named semaphores.");
+        sem_unlink(SEM_MUTEX_NAME);
+        sem_unlink(SEM_EMPTY_NAME);
+        sem_unlink(SEM_FULL_NAME);
+        sem_unlink(SHM_NAME);
+        exit(0);
+    }
+       
 }
 
-#define N 8
-#define MAX_STR 256
-
-static char buffer[N][MAX_STR];
-
-static int head = 0;
-static int tail = 0;
-static sem_t mutex;
-static sem_t empty;
-static sem_t full;
-
-
-int item_num = 0;
 
 void init_queue() {
-    sem_init(&mutex, 0, 1);
-    sem_init(&empty, 0, N);
-    sem_init(&full, 0, 0);
+    mutex = sem_open(SEM_MUTEX_NAME, O_CREAT, 0666, 1);
+    if (mutex == SEM_FAILED) {
+        log_msg(LOG_ERROR, "sem_open failed");
+        exit(1);
+    }
+
+    empty = sem_open(SEM_EMPTY_NAME, O_CREAT, 0666, 1);
+    if (empty == SEM_FAILED) {
+        log_msg(LOG_ERROR, "sem_open failed");
+        exit(1);
+    }
+
+    full = sem_open(SEM_FULL_NAME, O_CREAT, 0666, 1);
+    if (full == SEM_FAILED) {
+        log_msg(LOG_ERROR, "sem_open failed");
+        exit(1);
+    }
 }
 
+void init_shm() {
+    int first = 1;
+    g_shm_fd = shm_open(SHM_NAME, O_RDWR, 0666);
+    if (g_shm_fd < 0)
+    {
+        log_msg(LOG_INFO, "SHM not found, creating new.\n");
+        g_shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
+        if (g_shm_fd < 0)
+        {
+            log_msg(LOG_ERROR, "shm open failed");
+            exit(1);
+        }
+
+        if(ftruncate(g_shm_fd, sizeof(shm_data)) < 0){
+            log_msg(LOG_ERROR, "ftruncate failed");
+            exit(1);
+        }
+        first = 1;
+    }
+    g_shm = (shm_data *)mmap(NULL, sizeof(shm_data), 
+    PROT_READ | PROT_WRITE, MAP_SHARED, g_shm_fd, 0);
+    if (g_shm == MAP_FAILED) {
+        log_msg(LOG_ERROR, "mmap failed");
+        exit(1);
+    }
+    if(first) {
+        memset(g_shm, 0, sizeof(*g_shm));
+        g_shm->head = 0;
+        g_shm->tail = 0;
+        g_shm->item_num = 0;
+        log_msg(LOG_INFO, "SHM initialized (first process).");
+    }
+    else{
+        log_msg(LOG_INFO, "SHM attached (existing).");
+    }
+    
+}
 
 
 void producer(char *item) {
-    sem_wait(&empty);
-    sem_wait(&mutex);
-    strncpy(buffer[tail], item, MAX_STR-1);
-    buffer[tail][MAX_STR-1] = '\0';
-    tail = (tail+1) % N;
-    item_num++;
-    sem_post(&mutex);
-    sem_post(&full);
+    sem_wait(empty);
+    sem_wait(mutex);
+
+    strncpy(g_shm->buffer[g_shm->tail], item, MAX_STR-1);
+    g_shm->buffer[g_shm->tail][MAX_STR-1] = '\0';
+    g_shm->tail = (g_shm->tail+1) % N;
+    g_shm->item_num++;
+    sem_post(mutex);
+    sem_post(full);
 }
 
 void consumer(char *item) {
-    sem_wait(&full);
-    sem_wait(&mutex);
-    strncpy(item, buffer[head], MAX_STR-1);
+    sem_wait(full);
+    sem_wait(mutex);
+    strncpy(item, g_shm->buffer[g_shm->head], MAX_STR-1);
     item[MAX_STR-1] = '\0';
-    head = (head + 1) % N;
-    sem_post(&mutex);
-    sem_post(&empty);
+    g_shm->head = (g_shm->head + 1) % N;
+    sem_post(mutex);
+    sem_post(empty);
 
 }
 
@@ -172,7 +245,7 @@ void run_consumer_client(int sock) {
         
         size_t len = strlen(item);
         char sendbuf[256];
-        snprintf(sendbuf, sizeof(sendbuf), "%d: %s", item_num, item);
+        snprintf(sendbuf, sizeof(sendbuf), "%d: %s", g_shm->item_num, item);
 
         write(sock, sendbuf, strlen(sendbuf));
         write(sock, "\n", 1);
@@ -184,6 +257,10 @@ void run_consumer_client(int sock) {
             return;
         }
         ack[r] = '\0';
+
+        if (!strcmp(ack, "Ok")) {
+            log_msg(LOG_INFO, "Consumer sent invalid ACK: %s", ack);
+        }
 
 
         /*  if(!strcmp(ack, "-")){
@@ -300,6 +377,7 @@ int main( int t_narg, char **t_args )
 
     log_msg( LOG_INFO, "Enter 'quit' to quit server." );
 
+    init_shm();
     init_queue();
     signal( SIGCHLD, SIG_IGN );
     // go!
@@ -381,6 +459,19 @@ int main( int t_narg, char **t_args )
                     //child
                     close(l_sock_listen);
                     handle_client((void*)(intptr_t)l_sock_client);
+                    sem_close(mutex);
+                    sem_close(empty);
+                    sem_close(full);
+                    if (g_shm)
+                    {
+                        munmap(g_shm, sizeof(*g_shm));
+                    }
+                    if (g_shm_fd >= 0)
+                    {
+                        close(g_shm_fd);
+                    }
+                    
+                    
                     exit(0);
                 }
                 else if(pid > 0) {
