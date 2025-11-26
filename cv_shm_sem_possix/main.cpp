@@ -7,7 +7,7 @@
 #include <sys/stat.h>   // mode_t, 0666
 #include <sys/mman.h>   // shm_open, mmap, PROT_*, MAP_*
 #include <semaphore.h>  // sem_open, sem_wait, sem_post
-//#include <mqueue.h>     // mq_open, mq_send, mq_receive
+#include <mqueue.h>     // mq_open, mq_send, mq_receive
 #include <sys/wait.h>   // wait
 
 typedef struct {
@@ -48,15 +48,48 @@ void demo_shm_open_mmap() {
     close(fd);
 }
 
+void demo_mq_open() {
+    const char *MQ_NAME = "/demo_mq_open";
 
+    struct mq_attr attr;
+    memset(&attr, 0, sizeof(attr));
 
-   
+    attr.mq_flags = 0;
+    attr.mq_maxmsg = 10;
+    attr.mq_msgsize = 256;
+    attr.mq_curmsgs - 0;
 
+    mqd_t mqd = mq_open(MQ_NAME, O_CREAT | O_RDWR, 0666, &attr);
+    pid_t pid = fork();
+
+    if(pid == 0) {
+        char buf[256];
+        unsigned int prio = 0;
+
+        printf("Child: cakam na spravu...\n");
+        ssize_t n = mq_receive(mqd, buf, sizeof(buf), &prio);
+        buf[n] = '\0';
+        printf("Child: sprava prijata: '%s' (n=%zd, prio=%u)\n", buf, n, &prio);
+        mq_close(mqd);
+        exit(0);
+    }
+    else {
+        const char *msg = "Ahoj z mq_send!\n";
+        sleep(1);
+        mq_send(mqd, msg, strlen(msg) + 1, 5);
+        printf("Parent: Sprava odoslana\n");
+        mq_close(mqd);
+        mq_unlink(MQ_NAME);
+        wait(NULL);
+    }
+}
 
 
 int main() {
 
-    sem_open_test();
+    //sem_open_test();
+    //demo_shm_open_mmap();
+    demo_mq_open();
 
     return 0;
 }

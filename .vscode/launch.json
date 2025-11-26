@@ -2,58 +2,64 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "shm",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/cv_shm_sem_possix/main",
+            "args": [],
+            "cwd": "${workspaceFolder}/cv_shm_sem_possix",
+            "preLaunchTask": "build-shm",
+            "MIMode": "gdb"
+        },
+        {
             "name": "socket_srv-0 (9090)",
-            "type": "lldb",
+            "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/cv_socket/socket-demo-0/socket_srv",
-            "args": [
-                "9090"
-            ],
+            "args": ["9090"],
             "cwd": "${workspaceFolder}/cv_socket/socket-demo-0",
-            "preLaunchTask": "build-socket-srv-0"
+            "preLaunchTask": "build-socket-srv-0",
+            "MIMode": "gdb"
         },
         {
             "name": "socket_srv-1 (9090)",
-            "type": "lldb",
+            "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/cv_socket/socket-demo-1/socket_srv",
-            "args": [
-                "9090"
-            ],
+            "args": ["9090"],
             "cwd": "${workspaceFolder}/cv_socket/socket-demo-1",
-            "preLaunchTask": "build-socket-srv-1"
+            "preLaunchTask": "build-socket-srv-1",
+            "MIMode": "gdb"
         },
         {
             "name": "client (localhost 9090)",
-            "type": "lldb",
+            "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/cv_socket/socket-demo/client",
-            "args": [
-                "127.0.0.1",
-                "9090"
-            ],
+            "args": ["127.0.0.1", "9090"],
             "cwd": "${workspaceFolder}/cv_socket/socket-demo",
-            "preLaunchTask": "build-client"
+            "preLaunchTask": "build-client",
+            "MIMode": "gdb"
         },
         {
             "name": "pipe_demo",
-            "type": "lldb",
+            "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/cv_pipe/pipe_demo",
             "args": [],
             "cwd": "${workspaceFolder}/cv_pipe",
-            "preLaunchTask": "build-pipe"
+            "preLaunchTask": "build-pipe",
+            "MIMode": "gdb"
         },
         {
             "name": "consumer-prod",
-            "type": "lldb",
+            "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/DU04_1/socket_srv",
-            "args": [
-                "9090"
-            ],
+            "program": "${workspaceFolder}/DU04_1/<SEM_DAJ_NOZ_BINARKY>",
+            "args": [],
             "cwd": "${workspaceFolder}/DU04_1",
-            "preLaunchTask": "build-consumer-prod"
+            "preLaunchTask": "build-consumer-prod",
+            "MIMode": "gdb"
         },
         {
             "name": "C/C++: gcc build and debug active file",
@@ -65,7 +71,7 @@
             "cwd": "${fileDirname}",
             "environment": [],
             "externalConsole": false,
-            "MIMode": "lldb",
+            "MIMode": "gdb",
             "preLaunchTask": "C/C++: gcc build active file"
         }
     ]
