@@ -318,47 +318,6 @@ void cleanup_ipc(void)
     }
 }
 
-//***************************************************************************
-// flush fronty
-
-void flush_queue(void)
-{
-    if (g_mode == MODE_SHM)
-    {
-        if (!g_shm) return;
-
-        sem_wait(mutex);
-        memset(g_shm->buffer, 0, sizeof(g_shm->buffer));
-        g_shm->head = 0;
-        g_shm->tail = 0;
-        g_shm->item_num = 0;
-        sem_post(mutex);
-
-        log_msg(LOG_INFO, "SHM queue flushed.");
-    }
-    else
-    {
-        if (g_mq == (mqd_t)-1) return;
-
-        struct mq_attr attr;
-        if (mq_getattr(g_mq, &attr) == -1)
-        {
-            log_msg(LOG_ERROR, "mq_getattr failed during flush");
-            return;
-        }
-
-        long count = attr.mq_curmsgs;
-        char tmp[MAX_STR];
-        while (count > 0)
-        {
-            if (mq_receive(g_mq, tmp, MAX_STR, NULL) == -1)
-                break;
-            count--;
-        }
-
-        log_msg(LOG_INFO, "MQ queue flushed.");
-    }
-}
 
 //***************************************************************************
 // producer / consumer
@@ -406,7 +365,7 @@ int consumer(char *item)
     }
     else
     {
-        struct timespec ts;
+         struct timespec ts;
         if (clock_gettime(CLOCK_REALTIME, &ts) == -1)
         {
             log_msg(LOG_ERROR, "clock_gettime failed");
@@ -415,7 +374,7 @@ int consumer(char *item)
         ts.tv_sec += 5;
 
         unsigned int prio;
-        ssize_t n = mq_timedreceive(g_mq, item, MAX_STR, &prio, &ts);
+        ssize_t n =mq_receive(g_mq, item, MAX_STR, &prio, &ts);
         if (n == -1)
         {
             if (errno == ETIMEDOUT)
@@ -441,6 +400,8 @@ int consumer(char *item)
     }
 }
 
+
+
 void producer(char *item)
 {
     if (g_mode == MODE_SHM)
@@ -452,7 +413,8 @@ void producer(char *item)
         int num = g_shm->total_produced;
 
         char tmp[MAX_STR];
-        snprintf(tmp, sizeof(tmp), "%d. %s", num, item);
+        //snprintf(tmp, sizeof(tmp), "%d. %s", num, item);
+        snprintf(tmp, sizeof(tmp), "%s", item);
 
         strncpy(g_shm->buffer[g_shm->tail], tmp, MAX_STR - 1);
         g_shm->buffer[g_shm->tail][MAX_STR - 1] = '\0';
@@ -462,14 +424,21 @@ void producer(char *item)
         sem_post(mutex);
         sem_post(full);
     }
-    else
     {
-        ssize_t len = strnlen(item, MAX_STR - 1);
-        item[len] = '\0';
-        if (mq_send(g_mq, item, len + 1, 0) < 0)
+        static int mq_counter = 0; 
+
+        mq_counter++;
+        char tmp[MAX_STR];
+        snprintf(tmp, sizeof(tmp), "%s", item);
+        //snprintf(tmp, sizeof(tmp), "%s", mq_counter, item);
+
+        ssize_t len = strnlen(tmp, MAX_STR - 1);
+        tmp[len] = '\0';
+
+        /* if (mq_send(g_mq, tmp, len + 1, 0) < 0)
         {
             log_msg(LOG_ERROR, "mq_send failed");
-        }
+        } */
     }
 }
 
@@ -548,6 +517,9 @@ void run_consumer_client(int sock)
         }
     }
 }
+
+
+
 
 void *handle_client(void *arg)
 {
@@ -712,7 +684,6 @@ int main(int t_narg, char **t_args)
         exit(1);
     }
 
-    log_msg(LOG_INFO, "Enter 'quit', 'stats', 'pause', 'resume' or 'flush' on stdin.");
 
     init_ipc();
     signal(SIGCHLD, SIG_IGN);
@@ -756,25 +727,7 @@ int main(int t_narg, char **t_args)
                     log_msg(LOG_INFO, "Request to 'quit' entered.");
                     g_running = 0;
                 }
-                else if (!strcmp(buf, "stats"))
-                {
-                    if (g_mode == MODE_SHM && g_shm)
-                    {
-                        sem_wait(mutex);
-                        printf("\n--- STATS ---\n");
-                        printf("item_num         = %d\n", g_shm->item_num);
-                        printf("total_produced   = %d\n", g_shm->total_produced);
-                        printf("total_consumed   = %d\n", g_shm->total_consumed);
-                        printf("producer_clients = %d\n", g_shm->producer_clients);
-                        printf("consumer_clients = %d\n\n", g_shm->consumer_clients);
-                        sem_post(mutex);
-                    }
-                    else
-                    {
-                        printf("Stats available only in SHM mode.\n");
-                    }
-                }
-                else if (!strcmp(buf, "pause"))
+                else if (!strcmp(buf, "-"))
                 {
                     if (g_mode == MODE_SHM && pause_sem)
                     {
@@ -786,7 +739,7 @@ int main(int t_narg, char **t_args)
                         log_msg(LOG_INFO, "Pause works only in SHM mode.");
                     }
                 }
-                else if (!strcmp(buf, "resume"))
+                else if (!strcmp(buf, "+"))
                 {
                     if (g_mode == MODE_SHM && pause_sem)
                     {
@@ -797,10 +750,6 @@ int main(int t_narg, char **t_args)
                     {
                         log_msg(LOG_INFO, "Resume works only in SHM mode.");
                     }
-                }
-                else if (!strcmp(buf, "flush"))
-                {
-                    flush_queue();
                 }
             }
         }
