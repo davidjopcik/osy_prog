@@ -59,7 +59,6 @@ void set_temp(void){
 }
 }
 
-
 void task_cooler(void)
 {
     while (1)
