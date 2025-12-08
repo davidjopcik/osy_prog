@@ -61,7 +61,9 @@ void gt_sig_mask_reset( void )
 // function triggered periodically by timer (SIGALRM)
 void gt_sig_handle( int t_sig ) 
 {
-    gt_sig_mask_reset();                // enable SIGALRM again
+    gt_sig_mask_reset();   
+    
+    gt_manage_timers(); 
 
     // .... manage timers here
 
@@ -73,9 +75,18 @@ void gt_sig_handle( int t_sig )
 // initialize first thread as current context (and start timer)
 void gt_init( void ) 
 {
+    for(int i = 0; i < MaxGThreads; i++) {
+        g_gttbl[i].thread_state = Unused;
+        g_gttbl[i].delay_ticks = 0;
+        g_gttbl[i].id = i;
+        g_gttbl[i].name[0] = '\0';
+    }
     g_gtcur = & g_gttbl[ 0 ];           // initialize current thread with thread #0
     g_gtcur -> thread_state = Running;  // set current to running
-}
+    g_gtcur -> delay_ticks = 0;
+    g_gtcur -> id = 0;
+    snprintf(g_gtcur->name, sizeof(g_gtcur->name), "Main");
+};
 
 
 // exit thread
@@ -141,16 +152,18 @@ int gt_yield( void )
 
 
 // create new thread by providing pointer to function that will act like "run" method
-int gt_go( void ( * t_run )( void ) ) 
+int gt_go(const char *t_name, void ( * t_run )( void ) ) 
 {
     char * l_stack;
     struct gt_context_t * p;
     
-    for ( p = & g_gttbl[ 0 ];; p++ )            // find an empty slot
-        if ( p == & g_gttbl[ MaxGThreads ] )    // if we have reached the end, gttbl is full and we cannot create a new thread
+    for ( p = & g_gttbl[ 0 ];; p++ )  {         // find an empty slot
+        if ( p == & g_gttbl[ MaxGThreads ] )  {   // if we have reached the end, gttbl is full and we cannot create a new thread
             return -1;
-        else if ( p -> thread_state == Unused )
-            break;                              // new slot was found
+        }else if ( p -> thread_state == Unused ) {
+            break;      }                        // new slot was found
+    };
+    int idx = (int)(p - g_gttbl);
 
     l_stack = ( char * ) malloc( StackSize );   // allocate memory for stack of newly created thread
     if ( !l_stack )
@@ -159,9 +172,19 @@ int gt_go( void ( * t_run )( void ) )
     *( uint64_t * ) & l_stack[ StackSize - 8 ] = ( uint64_t ) gt_stop;  //  put into the stack returning function gt_stop in case function calls return
     *( uint64_t * ) & l_stack[ StackSize - 16 ] = ( uint64_t ) t_run;   //  put provided function as a main "run" function
     p -> regs.rsp = ( uint64_t ) & l_stack[ StackSize - 16 ];           //  set stack pointer
-    p -> thread_state = Ready;                                          //  set state
+    p -> thread_state = Ready;  
+    p -> delay_ticks = 0;  
+    p -> id = idx;                                        //  set state
 
-    return 0;
+    if(t_name) {
+        strncpy(p->name , t_name, sizeof(p->name) - 1);
+        p->name[sizeof(p->name)-1] = '\0';
+    }
+    else{
+        snprintf(p->name, sizeof(p->name), "T%d", idx);
+    }
+
+    return idx;
 }
 
 
@@ -204,4 +227,72 @@ int uninterruptibleNanoSleep( time_t t_sec, long t_nanosec )
 #endif
     return 0; /* Return success */
 }
+
+void gt_suspend( void ) {
+    g_gtcur->thread_state = Suspended;
+    gt_yield();
+}
+
+void gt_delay( int t_ms ) {
+    if( t_ms <= 0) {
+        return;
+    }
+    int ticks = t_ms / TimePeriod;
+    if(ticks <= 0) {
+        ticks = 1;
+    }
+    g_gtcur->delay_ticks = ticks;
+    g_gtcur->thread_state = Blocked;
+
+    gt_yield();
+}
+
+void gt_resume( int t_id ) {
+    struct gt_context_t *p = & g_gttbl[ t_id ];
+    if(p->thread_state == Suspended) {
+        p->thread_state = Ready;
+    }
+}
+
+void gt_manage_timers( void ) {
+    for (int i = 0; i < MaxGThreads; ++i) {
+        struct gt_context_t *p = &g_gttbl[i];
+
+        if (p->thread_state == Blocked && p->delay_ticks > 0) {
+            p->delay_ticks--;
+
+            if (p->delay_ticks <= 0) {
+                p->delay_ticks = 0;
+                p->thread_state = Ready;
+            }
+        }
+    }
+};
+
+static const char *gt_state_str(gt_thread_state_t s) {
+    switch(s) {
+        case Unused: return "Unused";
+        case Running:   return "Running";
+        case Ready:     return "Ready";
+        case Blocked:   return "Blocked";
+        case Suspended: return "Suspended";
+        default:        return "Unknown";
+    }
+}
+
+void gt_task_list(void) {
+
+    printf( "ID  State      Name\n" );
+    printf( "---------------------------\n" );
+
+    for(int i = 0; i < MaxGThreads; i++) {
+        struct gt_context_t *p = &g_gttbl[i];
+        if(p->thread_state != Unused) {
+            char buf = (p == g_gtcur) ? '*' : ' ';
+            printf("%c%2d %-9s  %s\n", buf, p->id, gt_state_str(p->thread_state), p->name);
+            
+        }
+    }
+}
+
 

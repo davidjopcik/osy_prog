@@ -40,13 +40,15 @@ struct gt_context_t {
 #endif
     }
     regs;
-
     gt_thread_state_t thread_state; // process state
+    int id;
+    int delay_ticks;
+    char name[32];
 };
 
 
 void gt_init( void );                       // initialize gttbl
-int  gt_go( void ( * t_run )( void ) );     // create new thread and set f as new "run" function
+int  gt_go( const char *t_name, void ( * t_run )( void ) );     // create new thread and set f as new "run" function
 void gt_stop( void );                       // terminate current thread
 int  gt_yield( void );                      // yield and switch to another thread
 void gt_start_scheduler( void );            // start scheduler, wait for all tasks
@@ -56,5 +58,13 @@ void gt_swtch( struct gt_regs * t_old, struct gt_regs * t_new );        // decla
 void gt_pree_swtch( struct gt_regs * t_old, struct gt_regs * t_new );   // declaration from gtswtch.S
 
 int uninterruptibleNanoSleep( time_t sec, long nanosec );   // uninterruptible sleep
+
+void gt_delay( int t_ms );
+void gt_suspend( void );
+void gt_resume( int t_id );
+void gt_task_list( void );
+
+void gt_manage_timers( void );
+
 
 #endif // __GTHR_H
