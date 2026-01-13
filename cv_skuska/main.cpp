@@ -1,90 +1,94 @@
 #include <stdio.h>
-#include <string.h>
-#include <pthread.h>
-#include <semaphore.h>
+#include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
+#include <errno.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
-#define N 4
-#define MAX_STR 128
-#define TOTAL 10
+#define BUF 64
+#define LINE 1024
 
-char buf[N][MAX_STR];
-int head = 0;
-int tail = 0;
-
-static sem_t &mutex;
-static sem_t &empty;
-static sem_t &full;
-
-static void put_item(const char *s){
-        strncpy(buf[tail], s, MAX_STR-1);
-        buf[tail][MAX_STR-1] = '\0';
-        tail = (tail + 1) % N;
+static void die(const char *m){
+    perror(m);
+    exit(1);
 }
 
-static void get_item(char *out){
-    strncpy(out, buf[head], MAX_STR-1);
-    out[MAX_STR-1] = '\0';
-    head = (head + 1) % N;
-}
+static int handle_client(int cfd) {
+    char buf[BUF];
+    char line[LINE];
+    int line_len = 0;
 
-static void *producer(void *arg){
-    //void(arg);
-    for (int i = 0; i < TOTAL; i++)
-    {
-        char msg[MAX_STR];
-        snprintf(msg, sizeof(MAX_STR-1), "item-%d", i);
+    int n;
+    while((n = read(cfd, buf, sizeof(buf))) > 0) {
+        for(int i = 0; i < n; i++) {
+            char c = buf[i];
 
-        sem_wait(&empty);
-        sem_wait(&mutex);
+            if(c == '\n') {
+                line[line_len] = '\0';
+                dprintf(STDERR_FILENO, "RX: '%s'\n", line);
 
-        put_item(msg);
+                if((strcmp(line, "quit")) == 0 ) {
+                    write(cfd, "Bye\n", 4);
+                    return 0;
+                }
 
-        sem_post(&mutex);
-        sem_post(&full);
+                write(cfd, "Ok\n", 3);
+                line_len = 0;
 
-        dprintf(STDERR_FILENO, "P: %s\n", msg);
-        usleep(50*1000);
+            }else {
+                line[line_len] = c;
+                line_len++;
+            }
+        }
     }
-    return NULL;
+    return 0;
+
 }
 
-static void *consumer(void *arg) {
-    for (int i = 0; i < TOTAL; i++)
-    {
-        char msg[MAX_STR];
 
-        sem_wait(&empty);
-        sem_wait(&mutex);
-
-        get_item(msg);
-
-        sem_post(&mutex);
-        sem_post(&full);
-
-        printf("C: %s\n", msg);
-        fflush(stdout);
-        usleep(120*1000);
+int main(int argc, char **argv) {
+    if(argc != 2) {
+        fprintf(stderr, "usage: %s <port>\n", argv[0]);
+        return 1;
     }
-    return NULL;
+
+    int port = atoi(argv[1]);
+
+    int sfd = socket(AF_INET, SOCK_STREAM, 0);
+    if(sfd < 0) die("socket");
+
+    int opt = 1;
+    setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(port);
+
+    if(bind(sfd, (struct sockaddr *)&addr, sizeof(addr)) < 0) die("bind");
+    if(listen(sfd, 5) < 0) die("listen");
+
+    dprintf(STDERR_FILENO, "Listening on port %d...\n", port);
+
+    while(1) {
+        int cfd = accept(sfd, NULL, NULL);
+        if (cfd < 0) die("accept");
+
+        pid_t pid = fork();
+        if(pid < 0) die("fork");
+
+        if(pid == 0) {
+            close(sfd);
+            handle_client(cfd);
+            close(cfd);
+            _exit(0);
+        }
+        close(cfd);
+    }
     
-}
-
-int main() {
-    sem_init(&mutex, 0, 1);
-    sem_init(&empty, 0, N);
-    sem_init(&full, 0, 0);
-
-    pthread_t pt, ct;
-    pthread_create(&pt, NULL, producer, NULL);
-    pthread_create(&ct, NULL, consumer, NULL);
-
-    pthread_join(pt, NULL);
-    pthread_join(ct, NULL);
-
-    sem_destroy(&mutex);
-    sem_destroy(&empty);
-    sem_destroy(&full);
 
     return 0;
 }
