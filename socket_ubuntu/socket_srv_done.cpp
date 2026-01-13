@@ -50,7 +50,7 @@ static int g_sock_exec = -1;
 
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 
-#define up(x) sem_post(&(x))
+#define up(x)   sem_post(&(x))
 #define down(x) sem_wait(&(x))
 
 #define BUF 8
@@ -58,6 +58,7 @@ static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // debug flag
 int g_debug = LOG_INFO;
+
 
 void log_msg(int t_log_level, const char *t_form, ...)
 {
@@ -113,111 +114,100 @@ void help(int t_narg, char **t_args)
         g_debug = LOG_DEBUG;
 }
 
-static void close_both()
-{
+static void close_both() {
     pthread_mutex_lock(&g_lock);
-    if (g_sock_get >= 0)
-    {
-        close(g_sock_get);
-        g_sock_get = -1;
-    }
-    if (g_sock_exec >= 0)
-    {
-        close(g_sock_exec);
-        g_sock_exec = -1;
-    }
+    if(g_sock_get >= 0) {close(g_sock_get); g_sock_get = -1;}
+    if(g_sock_exec >= 0) {close(g_sock_exec); g_sock_exec = -1;}
     pthread_mutex_unlock(&g_lock);
 }
 
-static void init_sem()
-{
+static void init_sem() {
     sem_init(&sem_get_count, 0, 1);
     sem_init(&sem_get_run, 0, 0);
     sem_init(&sem_exec_count, 0, 1);
     sem_init(&sem_exec_run, 0, 0);
 }
 
+
 static void *client_thread(void *arg)
 {
-    int sc = *(int *)arg;
+    int sc = *(int*)arg;
     free(arg);
 
     char buf[2049];
     int n = read(sc, buf, 2048);
-    if (n < 0)
-    {
-        close(sc);
-        return NULL;
-    }
+    if (n <= 0) { close(sc); return NULL; }
     buf[n] = '\0';
 
-    if (!strncmp(buf, "GET", 3))
-    {
-        if (strstr(buf, "favicon"))
-        {
-            close(sc);
-            return NULL;
-        }
-        if (sem_trywait(&sem_get_count) != 0)
-        {
-            close(sc);
-            return NULL;
-        }
+    // GET vetva
+    if (!strncmp(buf, "GET", 3)) {
+        // 1) favicon => zavri
+        if (strstr(buf, "favicon")) { close(sc); return NULL; }
 
+        // 2) povol len 1 GET
+        if (sem_trywait(&sem_get_count) != 0) { close(sc); return NULL; }
+
+        // 3) zaregistruj GET socket
         pthread_mutex_lock(&g_lock);
         g_sock_get = sc;
         int exec_sock = g_sock_exec;
         pthread_mutex_unlock(&g_lock);
 
-        if (exec_sock >= 0)
-        {
-            write(exec_sock, buf, n);
+        // 4) signal EXEC "som tu" a čakaj na EXEC
+        up(sem_exec_run);
+        down(sem_get_run);
+
+        // teraz by mali byť pripojení obaja
+        pthread_mutex_lock(&g_lock);
+        exec_sock = g_sock_exec;
+        pthread_mutex_unlock(&g_lock);
+
+        if (exec_sock >= 0) {
+            write(exec_sock, buf, n);   // pošli celý HTTP request EXEC
         }
 
-        sem_post(&sem_get_count);
-
+        // GET už ďalej nič nerobí, len čaká na odpoveď od EXEC (to bude riešiť EXEC thread)
+        // tu len uvoľni "slot" pre ďalší GET po skončení
+        up(sem_get_count);
+        // NEZATVÁRAJ sc hneď, GET musí dostať odpoveď. Nechaj otvorené.
         return NULL;
     }
 
-    // EXEC
-    if (strstr(buf, "EXEC"))
-    {
-        if (sem_trywait(&sem_exec_count) != 0)
-        {
-            close(sc);
-            return NULL;
-        }
+    // EXEC vetva
+    if (strstr(buf, "EXEC")) {
+        if (sem_trywait(&sem_exec_count) != 0) { close(sc); return NULL; }
 
         pthread_mutex_lock(&g_lock);
         g_sock_exec = sc;
         int get_sock = g_sock_get;
         pthread_mutex_unlock(&g_lock);
 
-        sem_post(&sem_get_run);
-        sem_post(&sem_exec_run);
+        up(sem_get_run);
+        down(sem_exec_run);
 
-        while (1)
-        {
+        // teraz preposielaj všetko od EXEC -> GET
+        while (1) {
             char out[2048];
             int k = read(sc, out, sizeof(out));
-            if (k <= 0)
-                break;
+            if (k <= 0) break;
 
             pthread_mutex_lock(&g_lock);
             get_sock = g_sock_get;
             pthread_mutex_unlock(&g_lock);
 
-            if (get_sock >= 0)
-            {
-                write(get_sock, out, k);
-            }
+            if (get_sock >= 0) write(get_sock, out, k);
         }
+
+        // keď sa EXEC odpojí, zavri oboch
         close_both();
-        sem_post(&sem_exec_count);
+        up(sem_exec_count);
         return NULL;
     }
+
+    // iné => zavri
     close(sc);
     return NULL;
+
 }
 
 void client_handle(int lsc)
@@ -354,12 +344,14 @@ int main(int t_narg, char **t_args)
                 inet_ntoa(l_srv_addr.sin_addr), ntohs(l_srv_addr.sin_port));
 
         int *p = malloc(sizeof(int));
-        *p = l_sock_client;
+        *p = l_sock_client; 
 
         pthread_t tid;
         pthread_create(&tid, NULL, client_thread, p);
         pthread_detach(tid);
 
+
+        
     } // while ( 1 )
 
     return 0;
