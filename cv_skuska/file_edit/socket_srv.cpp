@@ -39,7 +39,6 @@
 
 // debug flag
 int g_debug = LOG_INFO;
-int line_no = 0;
 
 void log_msg( int t_log_level, const char *t_form, ... )
 {
@@ -68,6 +67,27 @@ void log_msg( int t_log_level, const char *t_form, ... )
         break;
     }
 }
+
+char out_name[256];
+
+static void read_mame(int scl) {
+        int n = read(scl, out_name, sizeof(out_name));
+        write(STDOUT_FILENO, "Out name is: ", 13);
+        write(STDOUT_FILENO, out_name, n);
+        write(STDOUT_FILENO, "\n", 1);
+}
+
+static void save_data_to_file(int scl) {
+    int f = open(out_name, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+
+    char buf[4092];
+
+    int n = read(scl, buf, sizeof(buf));
+    write(f, buf, n);
+    close(f);
+
+}
+
 
 //***************************************************************************
 // help
@@ -165,71 +185,43 @@ int main( int t_narg, char **t_args )
     // go!
     while ( 1 )
     {
-         sockaddr_in l_rsa;
-        socklen_t l_rsa_size = sizeof( l_rsa );
-         l_sock_client = accept( l_sock_listen, ( sockaddr * ) &l_rsa, ( socklen_t * ) &l_rsa_size );
+        int l_sock_client = -1;
+        while ( 1 ) // wait for new client
+            { // new client?
+                sockaddr_in l_rsa;
+                int l_rsa_size = sizeof( l_rsa );
+                // new connection
+                l_sock_client = accept( l_sock_listen, ( sockaddr * ) &l_rsa, ( socklen_t * ) &l_rsa_size );
                 if ( l_sock_client == -1 )
                 {
                     log_msg( LOG_ERROR, "Unable to accept new client." );
                     close( l_sock_listen );
                     exit( 1 );
                 }
-       
-                pid_t l_pid = fork();
+                uint l_lsa = sizeof( l_srv_addr );
+                // my IP
+                getsockname( l_sock_client, ( sockaddr * ) &l_srv_addr, &l_lsa );
+                log_msg( LOG_INFO, "My IP: '%s'  port: %d",
+                                 inet_ntoa( l_srv_addr.sin_addr ), ntohs( l_srv_addr.sin_port ) );
+                // client IP
+                getpeername( l_sock_client, ( sockaddr * ) &l_srv_addr, &l_lsa );
+                log_msg( LOG_INFO, "Client IP: '%s'  port: %d",
+                                 inet_ntoa( l_srv_addr.sin_addr ), ntohs( l_srv_addr.sin_port ) );
 
-                if(l_pid > 0) {
+                pid_t t = fork();
+                if(t == 0) {
+                    //child
+                    close(l_sock_listen);
+                    read_mame(l_sock_client);
+                    save_data_to_file(l_sock_client);
+                    close(l_sock_client);
+                    _exit(0);
+                }else if(t > 0){
                     //parent
                     close(l_sock_client);
                     continue;
                 }
-                else{
-                    close(l_sock_listen); 
-                }
-            
-                break;
-
-        
-
-
-            char l_buf[ 256 ];
-            char line[1024];
-            char line_number[1024];
-            int line_len = 0;
-
-        while ( 1  )
-        { // communication
-           
-                //tus
-                if(l_len > 0) {
-                    for(int i = 0; i < l_len; i++) {
-                        if(l_buf[i] == '\n') {
-
-                            line[line_len] = '\0';
-                            snprintf(line_number, sizeof(line_number), "%d: %s", line_no, line);
-                            write(l_sock_client, line_number, strlen(line_number));
-                            write(l_sock_client, "\n", 1);
-                            line_number[0] = '\0';
-                            line_len = 0;
-                            line_no++;
-                        }
-                        else {
-                            line[line_len++] = l_buf[i];
-                        }
-                    }
-                }
-
-                
             }
-            // request for quit
-            if ( !strncasecmp( l_buf, "quit", strlen( STR_QUIT ) ) )
-            {
-                close( l_sock_listen );
-                close( l_sock_client );
-                log_msg( LOG_INFO, "Request to 'quit' entered" );
-                exit( 0 );
-                }
-        } // while communication
+        } // while wait for client
     return 0;
-
-    } 
-
+}
