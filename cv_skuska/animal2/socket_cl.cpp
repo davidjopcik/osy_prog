@@ -92,8 +92,6 @@ void help( int t_narg, char **t_args )
         g_debug = LOG_DEBUG;
 }
 
-
-
 //***************************************************************************
 
 int main( int t_narg, char **t_args )
@@ -103,8 +101,6 @@ int main( int t_narg, char **t_args )
 
     int l_port = 0;
     char *l_host = nullptr;
-    char *msg = nullptr;
-    char *animal = nullptr;
 
     // parsing arguments
     for ( int i = 1; i < t_narg; i++ )
@@ -121,10 +117,6 @@ int main( int t_narg, char **t_args )
                 l_host = t_args[ i ];
             else if ( !l_port )
                 l_port = atoi( t_args[ i ] );
-            else if ( !msg )
-                msg = t_args[ i ];
-            else if ( !animal )
-                animal = t_args[ i ];
         }
     }
 
@@ -181,15 +173,20 @@ int main( int t_narg, char **t_args )
     log_msg( LOG_INFO, "Enter 'close' to close application." );
 
     char buf[256];
-    strncpy(buf, msg, sizeof(buf));
-    strcat(buf, " ");
-    strcat(buf, animal);
-    write(l_sock_server, buf, sizeof(buf));
-    
-    
+
+    // go!
+    while ( 1 )
+    {
+        int n = read(STDIN_FILENO, buf, sizeof(buf));
+        if(n > 0) {
+            write(l_sock_server, buf, n);
+        }
+
+        
+    } 
 
     // close socket
-    //close( l_sock_server );
+    close( l_sock_server );
 
     return 0;
   }

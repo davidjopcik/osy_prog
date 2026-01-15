@@ -26,7 +26,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
-#include <semaphore.h>
 
 #define STR_CLOSE   "close"
 #define STR_QUIT    "quit"
@@ -37,10 +36,6 @@
 #define LOG_ERROR               0       // errors
 #define LOG_INFO                1       // information and notifications
 #define LOG_DEBUG               2       // debug messages
-
-#define SEM_NAME "/animal_sem"
-
-sem_t *g_sem;
 
 // debug flag
 int g_debug = LOG_INFO;
@@ -97,32 +92,45 @@ void help( int t_narg, char **t_args )
         g_debug = LOG_DEBUG;
 }
 
-static void client_handle(int scl) {
+static void send_data(int scl) {
+    char file_buf[4096];
+    int f = open("animal.cpp", O_RDONLY);
+    int n = read(f, file_buf, sizeof(file_buf));
+    close(f);
+    int nf = open("new.cpp", O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    int nfd = write(nf, file_buf, n);
+    if(nfd > 0)  {
+        log_msg(LOG_INFO, "Data poslane.");
+    }
+
+}
+
+static void client_handle(int scl){
     char buf[256];
-    char animal[10];
-    int len = 0;
+    char animal[256];
+    memset(animal, '\0', 256);
     
+    while(1){
         int n = read(scl, buf, sizeof(buf));
-        for(int i = 0; i < 9; i++){
-            animal[len++] = buf[8+i];
-        }
-        animal[len] = '\0';
-        write(STDOUT_FILENO, buf, strlen(buf));
-        write(STDOUT_FILENO, "\n", 1);
-
+        buf[n] = '\0';
         if(!strncmp(buf, "COMPILE", 7)) {
-            printf("%s\n", animal);
-            fflush(stdout);
 
-            pid_t p = fork();
-            if(p == 0){
-                //child
-                execlp("g++", "g++", "-D", animal, "animal.cpp", "-o", "animal", (char*)0);
-                _exit(1);
-            }else if(p > 0 ){
-                //parent
+            strncpy(animal, buf + 8, sizeof(buf));
+            animal[strlen(animal)-1] = '\0';
+
+            if(strcmp(animal, "DOG") == 0) {
+                printf("Posielam data...\n");
+                send_data(scl);
+                
+                break;
             }
+
+        }else{
+            write(STDOUT_FILENO, buf, n);
         }
+
+    } 
+    
 }
 
 //***************************************************************************
@@ -194,14 +202,17 @@ int main( int t_narg, char **t_args )
 
     log_msg( LOG_INFO, "Enter 'quit' to quit server." );
 
-    g_sem = sem_open(SEM_NAME, O_CREAT, 0644, 1);
-
     // go!
     while ( 1 )
     {
         int l_sock_client = -1;
 
+
+        while ( 1 ) // wait for new client
+        {
             
+
+           
                 sockaddr_in l_rsa;
                 int l_rsa_size = sizeof( l_rsa );
                 // new connection
@@ -222,23 +233,24 @@ int main( int t_narg, char **t_args )
                 log_msg( LOG_INFO, "Client IP: '%s'  port: %d",
                                  inet_ntoa( l_srv_addr.sin_addr ), ntohs( l_srv_addr.sin_port ) );
 
-                
-                pid_t t = fork();
-                if(t == 0){
+
+            
+                pid_t p = fork();
+                if(p == 0) {
                     //child
                     close(l_sock_listen);
-                    sem_wait(g_sem);
                     client_handle(l_sock_client);
-                    sem_post(g_sem);
                     close(l_sock_client);
                     _exit(0);
-                }
-                else if(t > 0){
+                }else if(p > 0) {
                     //parent
                     close(l_sock_client);
                     continue;
                 }
+
+
         
+        } // while communication
     } // while ( 1 )
 
     return 0;
