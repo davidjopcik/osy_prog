@@ -8,7 +8,7 @@
 ##############################################################################
 
 # Sources *.cpp can be changed to list of individual files
-SOURCES=$(wildcard *.cpp)
+SOURCES= socket_srv.cpp socket_cl.cpp 
 OBJS=$(SOURCES:%.cpp=%.o)
 TARGETS=$(SOURCES:%.cpp=%)
 
@@ -27,5 +27,5 @@ $(TARGETS): %: %.o
 	g++ $(LDFLAGS) $^ $(LDLIBS) -o $@ 
 
 clean:
-	rm -rf *.o $(TARGETS)
+	rm -rf *.o $(TARGETS) animal
 

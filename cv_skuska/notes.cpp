@@ -24,7 +24,7 @@ int nf = open("new.cpp", O_CREAT | O_WRONLY | O_TRUNC, 0644);
 #include <semaphore.h>
 #include <fcntl.h>
 
-sem_t *sem = sem_open("/mysem", O_CREAT, 0666, 1);
+sem_t *sem = sem_open("/mysem", O_CREAT, 0660, 1);
 
 sem_wait(sem);     // zamkni
 

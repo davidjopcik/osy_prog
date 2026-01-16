@@ -22,14 +22,15 @@
 #include <sys/socket.h>
 #include <sys/param.h>
 #include <sys/time.h>
-#include <sys/stat.h>
 #include <sys/wait.h>
-#include <sys/fcntl.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <semaphore.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
-#include <semaphore.h>
+
 
 #define STR_CLOSE   "close"
 #define STR_QUIT    "quit"
@@ -40,6 +41,9 @@
 #define LOG_ERROR               0       // errors
 #define LOG_INFO                1       // information and notifications
 #define LOG_DEBUG               2       // debug messages
+
+sem_t *sem_animal = sem_open("/animal", O_RDWR | O_CREAT, 0660, 1);
+
 
 // debug flag
 int g_debug = LOG_INFO;
@@ -77,6 +81,7 @@ void log_msg( int t_log_level, const char *t_form, ... )
 
 void help( int t_narg, char **t_args )
 {
+    
     if ( t_narg <= 1 || !strcmp( t_args[ 1 ], "-h" ) )
     {
         printf(
@@ -96,10 +101,78 @@ void help( int t_narg, char **t_args )
         g_debug = LOG_DEBUG;
 }
 
+
+static void sem_clean() {
+    sem_close(sem_animal);
+    sem_unlink("/animal");
+    log_msg(LOG_INFO, "Semaphores cleaned");
+}
+
+char animal_name[256];
+
+
+static void compile_file() {
+    pid_t p = fork();
+    if(p == 0){
+        execlp("g++", "g++", "-D", animal_name, "animal.cpp", "-o", "animal", nullptr);
+    }else if(p > 0) {
+        int status;
+        waitpid(p, &status, 0);
+        WEXITSTATUS(status);
+    }
+}
+
+static void send_data(int scl) {
+    char buf[4096];
+    int f = open("animal", O_RDONLY);
+    int size = lseek(f, 0, SEEK_END);
+
+    while(1){
+        int w = write(f, buf, sizeof(buf));
+        if(w <= 0) break;
+    }
+
+    while(1) {
+        int w = write(scl, buf, sizeof(buf));
+        if(w <= 0) break;
+    }
+}
+
+static void client_handle(int scl) {
+    memset(animal_name, '\0', 256);
+
+    char buf[256];
+    int n = read(scl, buf, sizeof(buf));
+    strcpy(animal_name, buf + 8);
+
+
+    /* if ( sem_trywait( sem_animal ) )
+    {
+        log_msg( LOG_ERROR, "Unable to decrease number of processes." );
+        return;
+    } */
+
+    sem_wait(sem_animal);
+
+    compile_file();
+
+    send_data(scl);
+
+    sem_post(sem_animal);
+
+    
+}
+
 //***************************************************************************
 
 int main( int t_narg, char **t_args )
 {
+    if(!strcmp(t_args[1], "clean")) {
+        sem_clean();
+        _exit(0);
+        
+    }
+
     if ( t_narg <= 1 ) help( t_narg, t_args );
 
     int l_port = 0;
@@ -172,9 +245,7 @@ int main( int t_narg, char **t_args )
 
         while ( 1 ) // wait for new client
         {
-
-            if ( l_read_poll[ 1 ].revents & POLLIN )
-            { // new client?
+ 
                 sockaddr_in l_rsa;
                 int l_rsa_size = sizeof( l_rsa );
                 // new connection
@@ -196,14 +267,28 @@ int main( int t_narg, char **t_args )
                                  inet_ntoa( l_srv_addr.sin_addr ), ntohs( l_srv_addr.sin_port ) );
 
                 
-                
-                
+
+
+                pid_t p = fork();
+                if(p == 0){
+                    //child
+                    close(l_sock_listen);
 
 
 
-            }
+                    client_handle(l_sock_client);
+
+
+                    close(l_sock_client);
+                    sem_clean();
+                }else if(p > 0){
+                    close(l_sock_listen);
+                }
 
         } // while wait for client
+
+        
+           
     } // while ( 1 )
 
     return 0;

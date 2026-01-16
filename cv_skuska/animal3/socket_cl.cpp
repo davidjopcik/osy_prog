@@ -22,16 +22,14 @@
 #include <sys/socket.h>
 #include <sys/param.h>
 #include <sys/time.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
-#include <sys/fcntl.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netdb.h>
-#include <semaphore.h>
-
+#include <sys/wait.h>
+#include <sys/stat.h>
+#include <sys/fcntl.h>
 
 #define STR_CLOSE               "close"
 
@@ -106,6 +104,7 @@ int main( int t_narg, char **t_args )
 
     int l_port = 0;
     char *l_host = nullptr;
+    char *animal = nullptr;
 
     // parsing arguments
     for ( int i = 1; i < t_narg; i++ )
@@ -122,6 +121,8 @@ int main( int t_narg, char **t_args )
                 l_host = t_args[ i ];
             else if ( !l_port )
                 l_port = atoi( t_args[ i ] );
+            else if ( !animal )
+                animal = t_args[i];
         }
     }
 
@@ -177,85 +178,21 @@ int main( int t_narg, char **t_args )
 
     log_msg( LOG_INFO, "Enter 'close' to close application." );
 
-    // list of fd sources
-    pollfd l_read_poll[ 2 ];
+    char msg[256];
+    sprintf(msg, "COMPILE %s", animal);
+    write(l_sock_server, msg, sizeof(msg));
 
-    l_read_poll[ 0 ].fd = STDIN_FILENO;
-    l_read_poll[ 0 ].events = POLLIN;
-    l_read_poll[ 1 ].fd = l_sock_server;
-    l_read_poll[ 1 ].events = POLLIN;
+    char buf[4096];
 
-    // go!
-    while ( 1 )
-    {
-        char l_buf[ 128 ];
+    int f = open("PID.bin", O_CREAT | O_WRONLY | O_TRUNC, 0644);
 
-        // select from fds
-        if ( poll( l_read_poll, 2, -1 ) < 0 ) break;
-
-        // data on stdin?
-        if ( l_read_poll[ 0 ].revents & POLLIN )
-        {
-            //  read from stdin
-            int l_len = read( STDIN_FILENO, l_buf, sizeof( l_buf ) );
-            if ( l_len == 0 )
-            {
-                log_msg( LOG_DEBUG, "Stdin closed." );
-                break;
-            }
-            if ( l_len < 0 )
-            {
-                log_msg( LOG_ERROR, "Unable to read from stdin." );
-                break;
-            }
-            else
-                log_msg( LOG_DEBUG, "Read %d bytes from stdin.", l_len );
-
-            // send data to server
-            l_len = write( l_sock_server, l_buf, l_len );
-            if ( l_len < 0 )
-            {
-                log_msg( LOG_ERROR, "Unable to send data to server." );
-                break;
-            }
-            else
-                log_msg( LOG_DEBUG, "Sent %d bytes to server.", l_len );
-        }
-
-        // data from server?
-        if ( l_read_poll[ 1 ].revents & POLLIN )
-        {
-            // read data from server
-            int l_len = read( l_sock_server, l_buf, sizeof( l_buf ) );
-            if ( l_len == 0 )
-            {
-                log_msg( LOG_DEBUG, "Server closed socket." );
-                break;
-            }
-            else if ( l_len < 0 )
-            {
-                log_msg( LOG_ERROR, "Unable to read data from server." );
-                break;
-            }
-            else
-                log_msg( LOG_DEBUG, "Read %d bytes from server.", l_len );
-
-            // display on stdout
-            l_len = write( STDOUT_FILENO, l_buf, l_len );
-            if ( l_len < 0 )
-            {
-                log_msg( LOG_ERROR, "Unable to write to stdout." );
-                break;
-            }
-
-            // request to close?
-            if ( !strncasecmp( l_buf, STR_CLOSE, strlen( STR_CLOSE ) ) )
-            {
-                log_msg( LOG_INFO, "Connection will be closed..." );
-                break;
-            }
-        }
+    while(1) {
+        int n = read(l_sock_server, buf, sizeof(buf));
+        write(f, buf, sizeof(buf));
+        if(n <= 0) break;
     }
+    close(f);
+
 
     // close socket
     close( l_sock_server );
