@@ -22,13 +22,16 @@
 #include <sys/socket.h>
 #include <sys/param.h>
 #include <sys/time.h>
-#include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <sys/fcntl.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netdb.h>
+#include <semaphore.h>
+
 
 #define STR_CLOSE               "close"
 
@@ -122,12 +125,6 @@ int main( int t_narg, char **t_args )
         }
     }
 
-    char animal[10];
-    memset(animal, '\0', 10);
-    strcpy(animal, t_args[3]);
-
-    //log_msg(LOG_INFO, "Animal: %s", animal);
-
     if ( !l_host || !l_port )
     {
         log_msg( LOG_INFO, "Host or port is missing!" );
@@ -180,56 +177,88 @@ int main( int t_narg, char **t_args )
 
     log_msg( LOG_INFO, "Enter 'close' to close application." );
 
-    char buf[256];
-    char cmd[256];
+    // list of fd sources
+    pollfd l_read_poll[ 2 ];
 
+    l_read_poll[ 0 ].fd = STDIN_FILENO;
+    l_read_poll[ 0 ].events = POLLIN;
+    l_read_poll[ 1 ].fd = l_sock_server;
+    l_read_poll[ 1 ].events = POLLIN;
 
-    int n = read(STDIN_FILENO, buf, sizeof(buf));
-        buf[strlen(buf) -1] = '\0';
-        if(n > 0) {
-            if(strcmp(buf, "COMPILE ANIMAL") == 0) {
-                int s = snprintf(cmd, sizeof(cmd), "COMPILE %s", animal);
-                //printf("cmd: %s, size: %ld\n", cmd, strlen(cmd));
-                write(l_sock_server, cmd, strlen(cmd));
+    // go!
+    while ( 1 )
+    {
+        char l_buf[ 128 ];
+
+        // select from fds
+        if ( poll( l_read_poll, 2, -1 ) < 0 ) break;
+
+        // data on stdin?
+        if ( l_read_poll[ 0 ].revents & POLLIN )
+        {
+            //  read from stdin
+            int l_len = read( STDIN_FILENO, l_buf, sizeof( l_buf ) );
+            if ( l_len == 0 )
+            {
+                log_msg( LOG_DEBUG, "Stdin closed." );
+                break;
             }
+            if ( l_len < 0 )
+            {
+                log_msg( LOG_ERROR, "Unable to read from stdin." );
+                break;
+            }
+            else
+                log_msg( LOG_DEBUG, "Read %d bytes from stdin.", l_len );
+
+            // send data to server
+            l_len = write( l_sock_server, l_buf, l_len );
+            if ( l_len < 0 )
+            {
+                log_msg( LOG_ERROR, "Unable to send data to server." );
+                break;
+            }
+            else
+                log_msg( LOG_DEBUG, "Sent %d bytes to server.", l_len );
         }
 
+        // data from server?
+        if ( l_read_poll[ 1 ].revents & POLLIN )
+        {
+            // read data from server
+            int l_len = read( l_sock_server, l_buf, sizeof( l_buf ) );
+            if ( l_len == 0 )
+            {
+                log_msg( LOG_DEBUG, "Server closed socket." );
+                break;
+            }
+            else if ( l_len < 0 )
+            {
+                log_msg( LOG_ERROR, "Unable to read data from server." );
+                break;
+            }
+            else
+                log_msg( LOG_DEBUG, "Read %d bytes from server.", l_len );
 
-        int file = open("PID.bin", O_CREAT | O_WRONLY | O_TRUNC, 0644);
-        char file_buf[4096];
+            // display on stdout
+            l_len = write( STDOUT_FILENO, l_buf, l_len );
+            if ( l_len < 0 )
+            {
+                log_msg( LOG_ERROR, "Unable to write to stdout." );
+                break;
+            }
 
-        while(1) {
-   
-        int r = read(l_sock_server, file_buf, sizeof(file_buf));
-        write(file, file_buf, r);
+            // request to close?
+            if ( !strncasecmp( l_buf, STR_CLOSE, strlen( STR_CLOSE ) ) )
+            {
+                log_msg( LOG_INFO, "Connection will be closed..." );
+                break;
+            }
+        }
+    }
 
-        if(r <= 0) break;
-
-        }    
-        close(file);
-        close( l_sock_server );
-
-        chmod("PID.bin", 0755);
-
-        /* pid_t p = fork();
-        if(p == 0){
-            execlp("chmod", "chmod", "+x", "PID.bin");
-            _exit(0);
-        }    
-        waitpid(p, NULL, 0); */
-
-        pid_t tp = fork();
-        if(tp == 0){
-            execlp("./PID.bin", "PID.bin", (char*)NULL);
-            _exit(0);
-        }    
-        waitpid(tp, NULL, 0);
-
-
-
-
-        
+    // close socket
+    close( l_sock_server );
 
     return 0;
-}
-
+  }

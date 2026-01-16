@@ -22,14 +22,14 @@
 #include <sys/socket.h>
 #include <sys/param.h>
 #include <sys/time.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/fcntl.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <semaphore.h>
-#include <signal.h>
-
 
 #define STR_CLOSE   "close"
 #define STR_QUIT    "quit"
@@ -40,8 +40,6 @@
 #define LOG_ERROR               0       // errors
 #define LOG_INFO                1       // information and notifications
 #define LOG_DEBUG               2       // debug messages
-
-sem_t *sem = sem_open("/my_sem", O_CREAT, 0666, 1);
 
 // debug flag
 int g_debug = LOG_INFO;
@@ -98,89 +96,10 @@ void help( int t_narg, char **t_args )
         g_debug = LOG_DEBUG;
 }
 
-static void send_data(int scl) {
-    char file_buf[4096];
-    int f = open("animal", O_RDONLY);
-
-    log_msg(LOG_INFO, "Som tu");
-
-    int size = lseek(f, 0, SEEK_END);
-    lseek(f, 0, SEEK_SET);
-    int tout = 5000 / (size / sizeof(file_buf)); 
-    int i = 1;
-    while(1){
-        int n = read(f, file_buf, sizeof(file_buf));
-        if(n <= 0) break;
-        //log_msg(LOG_INFO, "%s", file_buf);
-        write(scl, file_buf, n);
-        printf("Posielam data...(%d)\n", i++);
-        usleep(tout * 1000);
-    }
-    close(f);
-}
-
-
-static void client_handle(int scl){
-    
-    char buf[256];
-    char animal[256];
-    memset(animal, '\0', 256);
-
-    
-    while(1){
-        int n = read(scl, buf, sizeof(buf));
-        buf[n] = '\0';
-        
-
-        if(!strncmp(buf, "COMPILE", 7)) {
-            strncpy(animal, buf + 8, sizeof(buf));
-            animal[strlen(animal)] = '\0';
-
-            sem_wait(sem);
-
-            pid_t p = fork();
-            if(p == 0) {
-                log_msg(LOG_INFO, "exec");
-                execlp("g++", "g++", "-D DOG", "animal.cpp", "-o", "animal", (char*)NULL);
-                _exit(1);
-            }
-            else if(p > 0){
-                int status;
-                waitpid(p, &status, 0);
-                if(WEXITSTATUS(status)){
-                    log_msg(LOG_ERROR, "wait status");
-                    _exit(0);
-                };
-            }
-
-    
-                //fflush(stdout);
-                send_data(scl);
-                printf("Data poslane.\n");
-            sem_post(sem);
-            break;
-        }else{
-            write(STDOUT_FILENO, buf, n);
-        }
-        break;
-    } 
-    
-}
-
 //***************************************************************************
 
 int main( int t_narg, char **t_args )
 {
-
-    if(!strcmp(t_args[1], "clean")){
-        sem_close(sem);
-        sem_unlink("my_sem");
-        log_msg(LOG_INFO, "semaphores cleaned.");
-        _exit(0);
-        return 0;
-    }
-    
-
     if ( t_narg <= 1 ) help( t_narg, t_args );
 
     int l_port = 0;
@@ -200,7 +119,6 @@ int main( int t_narg, char **t_args )
             break;
         }
     }
-
 
     if ( l_port <= 0 )
     {
@@ -247,21 +165,16 @@ int main( int t_narg, char **t_args )
 
     log_msg( LOG_INFO, "Enter 'quit' to quit server." );
 
-
-    //sem_close(sem);
-    //sem_unlink("my_sem");
-
     // go!
     while ( 1 )
     {
         int l_sock_client = -1;
 
-
         while ( 1 ) // wait for new client
         {
-            
 
-           
+            if ( l_read_poll[ 1 ].revents & POLLIN )
+            { // new client?
                 sockaddr_in l_rsa;
                 int l_rsa_size = sizeof( l_rsa );
                 // new connection
@@ -282,30 +195,16 @@ int main( int t_narg, char **t_args )
                 log_msg( LOG_INFO, "Client IP: '%s'  port: %d",
                                  inet_ntoa( l_srv_addr.sin_addr ), ntohs( l_srv_addr.sin_port ) );
 
+                
+                
+                
 
-                    
-                pid_t p = fork();
-                if(p == 0) {
-                    //child
-                    signal(SIGCHLD, SIG_DFL);  
 
-                    close(l_sock_listen);
-                    client_handle(l_sock_client);
-                    close(l_sock_client);
-                    sem_close(sem);
-                    sem_unlink("my_sem");
-                    log_msg(LOG_INFO, "semaphores cleaned.");
-                    _exit(0);
-                    break;
-                }else if(p > 0) {
-                    //parent
-                    close(l_sock_client);      
-                }
-        } 
-        break;
+
+            }
+
+        } // while wait for client
     } // while ( 1 )
-     sem_close(sem);
-        sem_unlink("my_sem");
-        log_msg(LOG_INFO, "semaphores cleaned.");
+
     return 0;
 }
