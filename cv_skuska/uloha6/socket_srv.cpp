@@ -23,14 +23,12 @@
 #include <sys/param.h>
 #include <sys/time.h>
 #include <sys/wait.h>
-#include <sys/stat.h>
 #include <fcntl.h>
 #include <semaphore.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
-
 
 #define STR_CLOSE   "close"
 #define STR_QUIT    "quit"
@@ -42,11 +40,10 @@
 #define LOG_INFO                1       // information and notifications
 #define LOG_DEBUG               2       // debug messages
 
-sem_t *sem_animal = sem_open("/animal", O_RDWR | O_CREAT, 0660, 1);
-
-
 // debug flag
 int g_debug = LOG_INFO;
+
+sem_t *mysem = sem_open("/my_sem", O_CREAT, 0660, 1);
 
 void log_msg( int t_log_level, const char *t_form, ... )
 {
@@ -81,7 +78,6 @@ void log_msg( int t_log_level, const char *t_form, ... )
 
 void help( int t_narg, char **t_args )
 {
-    
     if ( t_narg <= 1 || !strcmp( t_args[ 1 ], "-h" ) )
     {
         printf(
@@ -102,82 +98,90 @@ void help( int t_narg, char **t_args )
 }
 
 
-static void sem_clean() {
-    sem_close(sem_animal);
-    sem_unlink("/animal");
-    log_msg(LOG_INFO, "Semaphores cleaned");
+
+static void recieve_data(int scl) {
+    char buf[1];
+    char line[256];
+    int f = open("clock.cpp", O_CREAT | O_WRONLY | O_TRUNC, 0644);
+
+    //memset(buf, '\0', 4096);
+    int r;
+    int empty_line = 0;
+    char tmp[1];
+    while(1){
+        r = read(scl, buf, sizeof(buf));
+        buf[r] = '\0';
+
+        if(!strcmp(buf, "\n")) {
+                empty_line++;
+            if(empty_line == 3) {
+                break;
+            }
+        }
+        else{
+            empty_line = 0;
+        } 
+
+        //tmp[0] = buf[0];
+        if(strcmp(buf, "%")) {
+            write(STDOUT_FILENO, buf, 1);
+            write(f, buf, 1);
+        }else{
+            while(1){
+                r = read(scl, buf, sizeof(buf));     
+                if(!strcmp(buf, "\n")) break;
+            }
+
+        }
+        usleep(10*1000);
+        if(r <= 0) break;
+    }
+    close(f);
 }
 
-char animal_name[256];
-
-
-static void compile_file() {
+static void compile_data() {
     pid_t p = fork();
-    if(p == 0){
-        execlp("g++", "g++", "-D", animal_name, "animal.cpp", "-o", "animal", nullptr);
-    }else if(p > 0) {
+    
+    if(p == 0) {
+        execlp("g++", "g++", "clock.cpp", "-o", "clock", nullptr);
+        _exit(0);
+    } else if(p > 0) {
         int status;
         waitpid(p, &status, 0);
         WEXITSTATUS(status);
     }
 }
 
-static void send_data(int scl) {
-    char buf[4096];
-    int f = open("animal", O_RDONLY);
-    int size = lseek(f, 0, SEEK_END);
-    lseek(f, 0, SEEK_SET);
+static void client_handle(int scl){
+    write(scl, "READY", 5);
+    usleep(200*1000);
+    recieve_data(scl);
 
-    int tout = 5000/ (size / sizeof(buf));
-    int i = 1;
-    log_msg(LOG_INFO, "Som tu");
+    sem_wait(mysem);
 
-    while(1) {
-        int r = read(f, buf, sizeof(buf));
-        write(scl, buf, r);
-        log_msg(LOG_INFO, "Posielam data(%d)", i++);
-        usleep(tout * 1000);
-        if(r <= 0) break;
+    compile_data();
+
+
+    pid_t pd = fork();
+    if(pd == 0) {
+        dup2(scl, STDOUT_FILENO);
+        //close(scl);
+        execlp("./clock", "clock", nullptr);
+        _exit(0);
+    } else if(pd > 0 ){
+        int status;
+        waitpid(pd, &status, 0);
+        WEXITSTATUS(status);
     }
-    close(f);
-}
 
-static void client_handle(int scl) {
-    memset(animal_name, '\0', 256);
-
-    char buf[256];
-    int n = read(scl, buf, sizeof(buf));
-    strcpy(animal_name, buf + 8);
-
-
-    /* if ( sem_trywait( sem_animal ) )
-    {
-        log_msg( LOG_ERROR, "Unable to decrease number of processes." );
-        return;
-    } */
-
-    sem_wait(sem_animal);
-
-    compile_file();
-
-    send_data(scl);
-
-    log_msg(LOG_INFO, "Data poslane.");
-
-    sem_post(sem_animal);
-
+    sem_post(mysem);
+    
 }
 
 //***************************************************************************
 
 int main( int t_narg, char **t_args )
 {
-    if(!strcmp(t_args[1], "clean")) {
-        sem_clean();
-        _exit(0);
-        
-    }
-
     if ( t_narg <= 1 ) help( t_narg, t_args );
 
     int l_port = 0;
@@ -250,7 +254,7 @@ int main( int t_narg, char **t_args )
 
         while ( 1 ) // wait for new client
         {
- 
+            
                 sockaddr_in l_rsa;
                 int l_rsa_size = sizeof( l_rsa );
                 // new connection
@@ -273,27 +277,31 @@ int main( int t_narg, char **t_args )
 
                 
 
-
                 pid_t p = fork();
-                if(p == 0){
+                if(p == 0 ) {
                     //child
                     close(l_sock_listen);
-
                     client_handle(l_sock_client);
-
                     close(l_sock_client);
-                    sem_clean();
+                    break;
                     _exit(0);
-                }else if(p > 0){
+                } else if(p > 0) {
                     close(l_sock_client);
-                    
+
+                    int status;
+                    waitpid(p, &status, 0);
+                    _exit(0);
                 }
+            
 
         } // while wait for client
 
-        
-           
+        break;
+
     } // while ( 1 )
+
+    sem_close(mysem);
+    sem_unlink("/my_sem");
 
     return 0;
 }

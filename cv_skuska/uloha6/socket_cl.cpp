@@ -28,8 +28,8 @@
 #include <errno.h>
 #include <netdb.h>
 #include <sys/wait.h>
-#include <sys/stat.h>
-#include <sys/fcntl.h>
+#include <fcntl.h>
+#include <semaphore.h>
 
 #define STR_CLOSE               "close"
 
@@ -104,7 +104,6 @@ int main( int t_narg, char **t_args )
 
     int l_port = 0;
     char *l_host = nullptr;
-    char *animal = nullptr;
 
     // parsing arguments
     for ( int i = 1; i < t_narg; i++ )
@@ -121,8 +120,6 @@ int main( int t_narg, char **t_args )
                 l_host = t_args[ i ];
             else if ( !l_port )
                 l_port = atoi( t_args[ i ] );
-            else if ( !animal )
-                animal = t_args[i];
         }
     }
 
@@ -179,34 +176,32 @@ int main( int t_narg, char **t_args )
     log_msg( LOG_INFO, "Enter 'close' to close application." );
 
     char msg[256];
-    sprintf(msg, "COMPILE %s", animal);
-    write(l_sock_server, msg, sizeof(msg));
 
-    char buf[4096];
-
-    int f = open("PID.bin", O_CREAT | O_WRONLY | O_TRUNC, 0644);
 
     while(1) {
-        int n = read(l_sock_server, buf, sizeof(buf));
-        write(f, buf, sizeof(buf));
-        if(n <= 0) break;
-    }
-    close(f);
-
-    chmod("PID.bin", 0755);
-
-    pid_t p = fork();
-    if(p == 0) {
-        execlp("./PID.bin", "PID");
-        _exit(0);
-
-    }else if (p > 0) {
-        int status;
-        waitpid(p, &status, 0);
-        WEXITSTATUS(status);
+        int n = read(l_sock_server, msg, sizeof(msg));
+        if(!strcmp(msg, "READY")) break;
     }
 
-   
+    char file_buf[4096];
+
+    log_msg(LOG_INFO, "Posielam zdrojovy kod");
+    int f = open("je_prave.cpp", O_RDONLY, 0644);
+    int r = read(f, file_buf, sizeof(file_buf));
+    file_buf[r-1] = '\0';
+    int n = write(l_sock_server, file_buf, sizeof(file_buf));
+
+    log_msg(LOG_INFO, "Data poslane");
+
+    char buf[1];
+    int c;
+    while(1){
+        c = read(l_sock_server, buf, 1);
+        //buf[strlen(buf) - 1] = '\0';
+         write(STDOUT_FILENO, buf, 1);   
+         if(c <= 0) break; 
+    }
+    
 
     // close socket
     close( l_sock_server );

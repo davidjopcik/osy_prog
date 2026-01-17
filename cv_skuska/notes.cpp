@@ -13,6 +13,9 @@ if(!strncmp(buf, "COMPILE", 7))
 //kopirovanie stringu od pozicie 8
 strncpy(animal, buf + 8, sizeof(buf))
 
+//pridanie stringu k aktualnemu
+strcat(animal, buf)
+
 //otvorenie suboru a citanie
 int f = open("animal.cpp", O_RDONLY);
 
