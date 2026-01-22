@@ -172,85 +172,27 @@ int main( int t_narg, char **t_args )
 
     log_msg( LOG_INFO, "Enter 'close' to close application." );
 
-    // list of fd sources
-    pollfd l_read_poll[ 2 ];
+    char buf[128];
+    char file_buf[4096];
 
-    l_read_poll[ 0 ].fd = STDIN_FILENO;
-    l_read_poll[ 0 ].events = POLLIN;
-    l_read_poll[ 1 ].fd = l_sock_server;
-    l_read_poll[ 1 ].events = POLLIN;
+    int f = open("animal.cpp", O_RDONLY);
+    int size = lseek(f, 0, SEEK_END);
+    lseek(f, 0, SEEK_SET);
 
-    // go!
-    while ( 1 )
+    sprintf(buf, "%d", size);
+
+    dprintf(STDOUT_FILENO, "%s", buf);
+
+    write(l_sock_server, buf, sizeof(buf)); 
+
+    while (1)
     {
-        char l_buf[ 128 ];
-
-        // select from fds
-        if ( poll( l_read_poll, 2, -1 ) < 0 ) break;
-
-        // data on stdin?
-        if ( l_read_poll[ 0 ].revents & POLLIN )
-        {
-            //  read from stdin
-            int l_len = read( STDIN_FILENO, l_buf, sizeof( l_buf ) );
-            if ( l_len == 0 )
-            {
-                log_msg( LOG_DEBUG, "Stdin closed." );
-                break;
-            }
-            if ( l_len < 0 )
-            {
-                log_msg( LOG_ERROR, "Unable to read from stdin." );
-                break;
-            }
-            else
-                log_msg( LOG_DEBUG, "Read %d bytes from stdin.", l_len );
-
-            // send data to server
-            l_len = write( l_sock_server, l_buf, l_len );
-            if ( l_len < 0 )
-            {
-                log_msg( LOG_ERROR, "Unable to send data to server." );
-                break;
-            }
-            else
-                log_msg( LOG_DEBUG, "Sent %d bytes to server.", l_len );
-        }
-
-        // data from server?
-        if ( l_read_poll[ 1 ].revents & POLLIN )
-        {
-            // read data from server
-            int l_len = read( l_sock_server, l_buf, sizeof( l_buf ) );
-            if ( l_len == 0 )
-            {
-                log_msg( LOG_DEBUG, "Server closed socket." );
-                break;
-            }
-            else if ( l_len < 0 )
-            {
-                log_msg( LOG_ERROR, "Unable to read data from server." );
-                break;
-            }
-            else
-                log_msg( LOG_DEBUG, "Read %d bytes from server.", l_len );
-
-            // display on stdout
-            l_len = write( STDOUT_FILENO, l_buf, l_len );
-            if ( l_len < 0 )
-            {
-                log_msg( LOG_ERROR, "Unable to write to stdout." );
-                break;
-            }
-
-            // request to close?
-            if ( !strncasecmp( l_buf, STR_CLOSE, strlen( STR_CLOSE ) ) )
-            {
-                log_msg( LOG_INFO, "Connection will be closed..." );
-                break;
-            }
-        }
+        int n = read(f, file_buf, sizeof(file_buf));
+        write(l_sock_server, file_buf, n);
+        if (n <= 0) break;
     }
+    close(f);
+    
 
     // close socket
     close( l_sock_server );

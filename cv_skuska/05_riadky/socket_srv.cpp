@@ -22,10 +22,14 @@
 #include <sys/socket.h>
 #include <sys/param.h>
 #include <sys/time.h>
+#include <sys/wait.h>
+#include <semaphore.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <cstring>
+#include <iostream>
 
 #define STR_CLOSE   "close"
 #define STR_QUIT    "quit"
@@ -90,6 +94,64 @@ void help( int t_narg, char **t_args )
 
     if ( !strcmp( t_args[ 1 ], "-d" ) )
         g_debug = LOG_DEBUG;
+}
+
+int sz;
+char msg[128];
+char buf[4096];
+char new_buf[4096];
+char new_line[4096];
+
+void file_read(int scl) {
+    while (1)
+    {
+        int n = read(scl, buf, sz);
+        if (n <= 0) break;
+    }
+    //log_msg(LOG_INFO, "%s", buf);
+}
+
+void count_lines() {
+
+    while (1)
+    {
+    char *line = strtok(buf, "\n");
+    char *res = strtok(NULL, "\0");
+
+    //strcpy(new_buf, strtok(NULL, "\0"));
+    sprintf(new_line, "1. %s", line);
+    sprintf(new_buf, "%s%s", new_line, res);
+    log_msg(LOG_INFO, "%s\n", new_buf);
+
+        
+    }
+    
+    
+
+    /* strcpy(new_line, "1. ");
+    log_msg(LOG_INFO, "%s", new_line);
+
+    strcpy(new_line, new_buf);
+
+    log_msg(LOG_INFO, "%s", new_line); */
+
+}
+
+
+void client_handle(int scl) {
+    int n = read(scl, msg, sizeof(msg));
+    msg[n] = '\0';
+    sz = atoi(msg);
+    log_msg(LOG_INFO, "%d", sz);
+    memset(buf, 0, sz);
+
+    file_read(scl);
+    count_lines();
+
+
+    
+
+
 }
 
 //***************************************************************************
@@ -166,53 +228,10 @@ int main( int t_narg, char **t_args )
     {
         int l_sock_client = -1;
 
-        // list of fd sources
-        pollfd l_read_poll[ 2 ];
-
-        l_read_poll[ 0 ].fd = STDIN_FILENO;
-        l_read_poll[ 0 ].events = POLLIN;
-        l_read_poll[ 1 ].fd = l_sock_listen;
-        l_read_poll[ 1 ].events = POLLIN;
 
         while ( 1 ) // wait for new client
         {
-            // select from fds
-            int l_poll = poll( l_read_poll, 2, -1 );
-
-            if ( l_poll < 0 )
-            {
-                log_msg( LOG_ERROR, "Function poll failed!" );
-                exit( 1 );
-            }
-
-            if ( l_read_poll[ 0 ].revents & POLLIN )
-            { // data on stdin
-                char buf[ 128 ];
-                
-                int l_len = read( STDIN_FILENO, buf, sizeof( buf) );
-                if ( l_len == 0 )
-                {
-                    log_msg( LOG_DEBUG, "Stdin closed." );
-                    exit( 0 );
-                }
-                if ( l_len < 0 )
-                {
-                    log_msg( LOG_DEBUG, "Unable to read from stdin!" );
-                    exit( 1 );
-                }
-
-                log_msg( LOG_DEBUG, "Read %d bytes from stdin", l_len );
-                // request to quit?
-                if ( !strncmp( buf, STR_QUIT, strlen( STR_QUIT ) ) )
-                {
-                    log_msg( LOG_INFO, "Request to 'quit' entered.");
-                    close( l_sock_listen );
-                    exit( 0 );
-                }
-            }
-
-            if ( l_read_poll[ 1 ].revents & POLLIN )
-            { // new client?
+            
                 sockaddr_in l_rsa;
                 int l_rsa_size = sizeof( l_rsa );
                 // new connection
@@ -233,101 +252,22 @@ int main( int t_narg, char **t_args )
                 log_msg( LOG_INFO, "Client IP: '%s'  port: %d",
                                  inet_ntoa( l_srv_addr.sin_addr ), ntohs( l_srv_addr.sin_port ) );
 
-                break;
-            }
+
+                pid_t p = fork();
+                if (p == 0)
+                {
+                    close(l_sock_listen);
+                    client_handle(l_sock_client);
+                    close(l_sock_client);
+                }else if (p > 0)
+                {
+                    close(l_sock_client);
+                }
+                
+                continue;
+        
 
         } // while wait for client
-
-        // change source from sock_listen to sock_client
-        l_read_poll[ 1 ].fd = l_sock_client;
-
-        while ( 1  )
-        { // communication
-            char l_buf[ 256 ];
-
-            // select from fds
-            int l_poll = poll( l_read_poll, 2, -1 );
-
-            if ( l_poll < 0 )
-            {
-                log_msg( LOG_ERROR, "Function poll failed!" );
-                exit( 1 );
-            }
-
-            // data on stdin?
-            if ( l_read_poll[ 0 ].revents & POLLIN )
-            {
-                // read data from stdin
-                int l_len = read( STDIN_FILENO, l_buf, sizeof( l_buf ) );
-                if ( l_len == 0 )
-                {
-                    log_msg( LOG_DEBUG, "Stdin closed." );
-                    exit( 0 );
-                }
-                if ( l_len < 0 )
-                {
-                    log_msg( LOG_ERROR, "Unable to read data from stdin." );
-                    exit( 1 );
-                }
-                else
-                    log_msg( LOG_DEBUG, "Read %d bytes from stdin.", l_len );
-
-                // send data to client
-                l_len = write( l_sock_client, l_buf, l_len );
-                if ( l_len < 0 )
-                {
-                    log_msg( LOG_ERROR, "Unable to send data to client." );
-                    exit( 1 );
-                }
-                else
-                    log_msg( LOG_DEBUG, "Sent %d bytes to client.", l_len );
-            }
-            // data from client?
-            if ( l_read_poll[ 1 ].revents & POLLIN )
-            {
-                // read data from socket
-                int l_len = read( l_sock_client, l_buf, sizeof( l_buf ) );
-                if ( l_len == 0 )
-                {
-                    log_msg( LOG_DEBUG, "Client closed socket!" );
-                    close( l_sock_client );
-                    break;
-                }
-                else if ( l_len < 0 )
-                {
-                    log_msg( LOG_ERROR, "Unable to read data from client." );
-                    close( l_sock_client );
-                    break;
-                }
-                else
-                    log_msg( LOG_DEBUG, "Read %d bytes from client.", l_len );
-
-                // write data to client
-                l_len = write( STDOUT_FILENO, l_buf, l_len );
-                if ( l_len < 0 )
-                {
-                    log_msg( LOG_ERROR, "Unable to write data to stdout." );
-                    exit( 1 );
-                }
-
-                // close request?
-                if ( !strncasecmp( l_buf, "close", strlen( STR_CLOSE ) ) )
-                {
-                    log_msg( LOG_INFO, "Client sent 'close' request to close connection." );
-                    close( l_sock_client );
-                    log_msg( LOG_INFO, "Connection closed. Waiting for new client." );
-                    break;
-                }
-            }
-            // request for quit
-            if ( !strncasecmp( l_buf, "quit", strlen( STR_QUIT ) ) )
-            {
-                close( l_sock_listen );
-                close( l_sock_client );
-                log_msg( LOG_INFO, "Request to 'quit' entered" );
-                exit( 0 );
-                }
-        } // while communication
     } // while ( 1 )
 
     return 0;
