@@ -96,7 +96,7 @@ void help( int t_narg, char **t_args )
         g_debug = LOG_DEBUG;
 }
 
-int sz;
+/* int sz;
 char msg[128];
 char buf[4096];
 char new_buf[4096];
@@ -112,11 +112,15 @@ void file_read(int scl) {
 }
 
 void count_lines() {
+    
+    char tmp[4096];
+    strncpy(tmp, buf, sz);
 
-    while (1)
+    for(int i = 0; i < 20; i++)
     {
-    char *line = strtok(buf, "\n");
+    char *line = strtok(tmp, "\n");
     char *res = strtok(NULL, "\0");
+    strncpy(tmp, res, sizeof(res));
 
     //strcpy(new_buf, strtok(NULL, "\0"));
     sprintf(new_line, "1. %s", line);
@@ -126,14 +130,6 @@ void count_lines() {
         
     }
     
-    
-
-    /* strcpy(new_line, "1. ");
-    log_msg(LOG_INFO, "%s", new_line);
-
-    strcpy(new_line, new_buf);
-
-    log_msg(LOG_INFO, "%s", new_line); */
 
 }
 
@@ -149,10 +145,47 @@ void client_handle(int scl) {
     count_lines();
 
 
+}
     
 
+ */
 
+ void client_handle(int scl) {
+    //sem_wait(&file_sem);   // 🔒 len jeden klient
+
+    char msg[64];
+    int n = read(scl, msg, sizeof(msg)-1);
+    msg[n] = '\0';
+
+    int sz = atoi(msg);
+
+    write(scl, "OK\n", 3); // potvrdenie
+
+    char *buf = (char*)malloc(sz + 1);
+    int total = 0;
+
+    while (total < sz) {
+        n = read(scl, buf + total, sz - total);
+        if (n <= 0) break;
+        total += n;
+    }
+    buf[sz] = '\0';
+
+    // spracovanie + posielanie späť
+    int line = 1;
+    char *p = strtok(buf, "\n");
+    while (p) {
+        char out[4096];
+        snprintf(out, sizeof(out), "%d: %s\n", line++, p);
+        write(scl, out, strlen(out));
+        dprintf(scl, out, strlen(out));
+        p = strtok(NULL, "\n");
+    }
+
+    //free(buf);
+    //sem_post(&file_sem);   // 🔓 ďalší klient
 }
+
 
 //***************************************************************************
 

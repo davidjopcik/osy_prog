@@ -174,16 +174,23 @@ int main( int t_narg, char **t_args )
 
     char buf[128];
     char file_buf[4096];
+    char n_buf[4096];
+    char ok[128];
+
 
     int f = open("animal.cpp", O_RDONLY);
     int size = lseek(f, 0, SEEK_END);
     lseek(f, 0, SEEK_SET);
 
+
     sprintf(buf, "%d", size);
 
     dprintf(STDOUT_FILENO, "%s", buf);
 
-    write(l_sock_server, buf, sizeof(buf)); 
+    write(l_sock_server, buf, strlen(buf)); 
+
+    read(l_sock_server, ok, sizeof(ok));
+
 
     while (1)
     {
@@ -192,6 +199,24 @@ int main( int t_narg, char **t_args )
         if (n <= 0) break;
     }
     close(f);
+
+
+
+
+    while (1)
+    {
+        int n = read(l_sock_server, n_buf, sizeof(n_buf));
+        write(STDOUT_FILENO, n_buf, n); 
+        if(n <= 0) break;
+    }
+
+    //printf("%s", n_buf);
+    //fflush(stdout);
+
+    
+    
+
+    
     
 
     // close socket
