@@ -1,0 +1,31 @@
+Piškvorky.
+
+Upravte soketový server tak, aby přijímal spojení od více klientů a pro každého klienta si vytvořil samostatný proces. 
+Poté, co přijme první dva klienty, bude další spojení odmítat. Kód pro klienta pište do samostatné funkce.
+
+Dva připojení klienti spolu budou hrát piškvorky.  
+Server si pro hru vytvoří hrací pole minimálně 5x5 ve sdílené paměti a vyplní ho tečkami.
+(Pro data je vhodné vytvořit strukturu, lépe se pak pracuje s typy a přetypováním.)  
+
+Indexování hracího pole bude: řádky číslem a sloupce písmenem.  
+Klienti budou střídavě zasílat své požadavky na provedení tahu ve tvaru „znak-číslo tedy např. „C-3“.  
+Při zadání špatného tahu bude hráč vyzván k novému zadání.  
+Po správném zadání tahu se klientovi odešle aktuální stav hracího pole a provede se přepnutí na druhého hráče.
+
+### Činnost serveru:
+
+Vytvoří sdílenou paměť (a semafory).  
+Přijme spojení s klientem, přiřadí mu index 0/1, vytvoří mu proces a dále opakuje:  
+    - Zašle hlášku: prosím o strpení.  
+    - `DOWN(sem[index])`  
+    - Zašle hrací pole.  
+    - Zašle hlášku: zadej tah.  
+    - Počká na tah od klienta.  
+    - Zpracuje tah.  
+    - Pokud je tah špatný, požádá o nový.  
+    - Zašle hrací pole.  
+    - `UP(sem[1 - index])`.  
+
+Střídání hráčů zajistěte dvojicí semaforů.
+
+Upravte kód tak, aby server ignoroval data, která jsou serveru zaslána dříve, než je hráč vyzván k tahu. Použijte poll.

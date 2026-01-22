@@ -123,7 +123,7 @@ static void compile_file() {
 }
 
 static void send_data(int scl) {
-    char buf[4096];
+    char buf[80096];
     int f = open("animal", O_RDONLY);
     int size = lseek(f, 0, SEEK_END);
     lseek(f, 0, SEEK_SET);

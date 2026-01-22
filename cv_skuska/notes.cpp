@@ -1,6 +1,15 @@
 #include <iostream>
 
 int main() {
+
+    ```c
+memset(buf, 0, size);              // vymazanie pamäte
+memcpy(dst, src, n);               // kopírovanie bajtov (NEKONČÍ \0)
+strlen(str);                       // dĺžka stringu bez \0
+strcmp(a, b);                      // porovnanie stringov
+strncmp(a, b, n);                  // porovnanie n znakov
+snprintf(buf, size, "%s", str);  // bezpečné skladanie stringu
+```
 //vynuluj buffer
 memset(animal, '\0', 256);
 
@@ -15,6 +24,19 @@ strncpy(animal, buf + 8, sizeof(buf))
 
 //pridanie stringu k aktualnemu
 strcat(animal, buf)
+
+
+```c
+int day, month;
+sscanf(line, "DAY %d.%d", &day, &month);
+```
+
+Alebo manuálne:
+
+```c
+memcpy(buf, line+4, 2);
+buf[2] = '\0';
+```
 
 //otvorenie suboru a citanie
 int f = open("animal.cpp", O_RDONLY);
@@ -54,6 +76,29 @@ void* worker(void* arg) {
 sem_destroy(&mutex);
 
 
+//Shared Memory
+#define SHM_NAME        "/shm_my"
+
+struct SharedMemory {
+    int count;
+    char field[5][5];
+    sem_t players[2];
+};
+
+struct SharedMemory *shmm = NULL;
+
+int my_sem = shm_open( SHM_NAME, O_CREAT | O_RDWR, 0660 );
+    ftruncate(my_sem, sizeof(SharedMemory));
+
+    shmm = ( SharedMemory * ) mmap( nullptr, sizeof( SharedMemory ), PROT_READ | PROT_WRITE,
+            MAP_SHARED, my_sem, 0 );
+
+sem_init(&shmm->players[0], 1, 1);
+sem_init(&shmm->players[1], 1, 0);
+
+shm_unlink( SHM_NAME );
+
+
 //WAIT status
 #include <signal.h>
 #include <sys/wait.h>
@@ -81,6 +126,32 @@ int size = lseek(fd, 0, SEEK_END);
 lseek(fd, 0, SEEK_SET); // - vrati sa spat na zaiatok
 
 
+
+
+```c
+pthread_t t;
+pthread_create(&t, nullptr, client_handle, (void*)(intptr_t)l_sock_client);
+pthread_join(t, nullptr);
+
+void *client_handle(void *par) {
+    int scl = (int)(intptr_t) par;
+
+
+    close(scl);
+
+    return NULL;
+} 
+
+```
+
+```c
+pid_t pid = fork();
+if (pid == 0) {
+    execvp("display", argv);
+    exit(1);
+}
+wait(NULL);
+```
 
 
 
